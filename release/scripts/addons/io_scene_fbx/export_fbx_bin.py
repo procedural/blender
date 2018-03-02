@@ -553,13 +553,14 @@ def fbx_data_element_custom_properties(props, bid):
 
 def fbx_data_empty_elements(root, empty, scene_data):
     """
-    Write the Empty data block.
+    Write the Empty data block (you can control its FBX datatype with the 'fbx_type' string custom property).
     """
     empty_key = scene_data.data_empties[empty]
 
     null = elem_data_single_int64(root, b"NodeAttribute", get_fbx_uuid_from_key(empty_key))
     null.add_string(fbx_name_class(empty.name.encode(), b"NodeAttribute"))
-    null.add_string(b"Null")
+    val = empty.bdata.get('fbx_type', None)
+    null.add_string(val.encode() if val and isinstance(val, str) else b"Null")
 
     elem_data_single_string(null, b"TypeFlags", b"Null")
 
@@ -2019,6 +2020,7 @@ def fbx_animations(scene_data):
             add_anim(animations, animated,
                      fbx_animations_do(scene_data, strip, strip.frame_start, strip.frame_end, True, force_keep=True))
             strip.mute = True
+            scene.frame_set(scene.frame_current, 0.0)
 
         for strip in strips:
             strip.mute = False
@@ -2097,6 +2099,7 @@ def fbx_animations(scene_data):
                         pbo.matrix_basis = mat.copy()
                 ob.animation_data.action = org_act
                 restore_object(ob, ob_copy)
+                scene.frame_set(scene.frame_current, 0.0)
 
             if pbones_matrices is not ...:
                 for pbo, mat in zip(ob.pose.bones, pbones_matrices):
@@ -2104,6 +2107,7 @@ def fbx_animations(scene_data):
             ob.animation_data.action = org_act
 
             bpy.data.objects.remove(ob_copy)
+            scene.frame_set(scene.frame_current, 0.0)
 
     # Global (containing everything) animstack, only if not exporting NLA strips and/or all actions.
     if not scene_data.settings.bake_anim_use_nla_strips and not scene_data.settings.bake_anim_use_all_actions:
