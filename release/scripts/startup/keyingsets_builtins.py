@@ -199,8 +199,8 @@ class BUILTIN_KSI_BendyBones(KeyingSetInfo):
 
 # VisualLocation
 class BUILTIN_KSI_VisualLoc(KeyingSetInfo):
-    """Insert a keyframe on each of the location channels, taking into account effects of constraints """
-    """and relationships"""
+    """Insert a keyframe on each of the location channels, """ \
+    """taking into account effects of constraints and relationships"""
     bl_label = "Visual Location"
 
     bl_options = {'INSERTKEY_VISUAL'}
@@ -217,8 +217,8 @@ class BUILTIN_KSI_VisualLoc(KeyingSetInfo):
 
 # VisualRotation
 class BUILTIN_KSI_VisualRot(KeyingSetInfo):
-    """Insert a keyframe on each of the rotation channels, taking into account effects of constraints """
-    """and relationships"""
+    """Insert a keyframe on each of the rotation channels, """ \
+    """taking into account effects of constraints and relationships"""
     bl_label = "Visual Rotation"
 
     bl_options = {'INSERTKEY_VISUAL'}
@@ -235,8 +235,8 @@ class BUILTIN_KSI_VisualRot(KeyingSetInfo):
 
 # VisualScaling
 class BUILTIN_KSI_VisualScaling(KeyingSetInfo):
-    """Insert a keyframe on each of the scale channels, taking into account effects of constraints """
-    """and relationships"""
+    """Insert a keyframe on each of the scale channels, """ \
+    """taking into account effects of constraints and relationships"""
     bl_label = "Visual Scaling"
 
     bl_options = {'INSERTKEY_VISUAL'}
@@ -253,8 +253,8 @@ class BUILTIN_KSI_VisualScaling(KeyingSetInfo):
 
 # VisualLocRot
 class BUILTIN_KSI_VisualLocRot(KeyingSetInfo):
-    """Insert a keyframe on each of the location and rotation channels, taking into account effects of constraints """
-    """and relationships"""
+    """Insert a keyframe on each of the location and rotation channels, """ \
+    """taking into account effects of constraints and relationships"""
     bl_label = "Visual LocRot"
 
     bl_options = {'INSERTKEY_VISUAL'}
@@ -275,8 +275,8 @@ class BUILTIN_KSI_VisualLocRot(KeyingSetInfo):
 
 # VisualLocScale
 class BUILTIN_KSI_VisualLocScale(KeyingSetInfo):
-    """Insert a keyframe on each of the location and scaling channels, taking into account effects of constraints """
-    """and relationships"""
+    """Insert a keyframe on each of the location and scaling channels, """ \
+    """taking into account effects of constraints and relationships"""
     bl_label = "Visual LocScale"
 
     bl_options = {'INSERTKEY_VISUAL'}
@@ -297,8 +297,8 @@ class BUILTIN_KSI_VisualLocScale(KeyingSetInfo):
 
 # VisualLocRotScale
 class BUILTIN_KSI_VisualLocRotScale(KeyingSetInfo):
-    """Insert a keyframe on each of the location, rotation and scaling channels, taking into account effects """
-    """of constraints and relationships"""
+    """Insert a keyframe on each of the location, """ \
+    """rotation and scaling channels, taking into account effects of constraints and relationships"""
     bl_label = "Visual LocRotScale"
 
     bl_options = {'INSERTKEY_VISUAL'}
@@ -321,8 +321,8 @@ class BUILTIN_KSI_VisualLocRotScale(KeyingSetInfo):
 
 # VisualRotScale
 class BUILTIN_KSI_VisualRotScale(KeyingSetInfo):
-    """Insert a keyframe on each of the rotation and scaling channels, taking into account effects of constraints """
-    """and relationships"""
+    """Insert a keyframe on each of the rotation and scaling channels, """ \
+    """taking into account effects of constraints and relationships"""
     bl_label = "Visual RotScale"
 
     bl_options = {'INSERTKEY_VISUAL'}
@@ -369,7 +369,7 @@ class BUILTIN_KSI_Available(KeyingSetInfo):
 
 # All properties that are likely to get animated in a character rig
 class BUILTIN_KSI_WholeCharacter(KeyingSetInfo):
-    """Insert a keyframe for all properties that are likely to get animated in a character rig """
+    """Insert a keyframe for all properties that are likely to get animated in a character rig """ \
     """(useful when blocking out a shot)"""
     bl_idname = ANIM_KS_WHOLE_CHARACTER_ID
     bl_label = "Whole Character"
@@ -432,9 +432,9 @@ class BUILTIN_KSI_WholeCharacter(KeyingSetInfo):
 
         # add Keying Set entry for this...
         if use_groups:
-            ks.paths.add(id_block, path, index, group_method='NAMED', group_name=bone.name)
+            ks.paths.add(id_block, path, index=index, group_method='NAMED', group_name=bone.name)
         else:
-            ks.paths.add(id_block, path, index)
+            ks.paths.add(id_block, path, index=index)
 
     # ----------------
 
@@ -521,14 +521,22 @@ class BUILTIN_KSI_WholeCharacter(KeyingSetInfo):
             prop_rna = type(bone).bl_rna.properties.get(prop, None)
             if prop_rna is None:
                 prop_path = '["%s"]' % prop
-                if bone.path_resolve(prop_path, False).rna_type in prop_type_compat:
+                try:
+                    rna_property = bone.path_resolve(prop_path, False)
+                except ValueError as ex:
+                    # This happens when a custom property is set to None. In that case it cannot
+                    # be converted to an FCurve-compatible value, so we can't keyframe it anyway.
+                    continue
+                if rna_property.rna_type in prop_type_compat:
                     ksi.addProp(ks, bone, prop_path)
             elif prop_rna.is_animatable:
                 ksi.addProp(ks, bone, prop)
 
 # All properties that are likely to get animated in a character rig, only selected bones.
+
+
 class BUILTIN_KSI_WholeCharacterSelected(KeyingSetInfo):
-    """Insert a keyframe for all properties that are likely to get animated in a character rig """
+    """Insert a keyframe for all properties that are likely to get animated in a character rig """ \
     """(only selected bones)"""
     bl_idname = ANIM_KS_WHOLE_CHARACTER_SELECTED_ID
     bl_label = "Whole Character (Selected bones only)"
@@ -536,7 +544,7 @@ class BUILTIN_KSI_WholeCharacterSelected(KeyingSetInfo):
     # iterator - all bones regardless of selection
     def iterator(ksi, context, ks):
         # Use either the selected bones, or all of them if none are selected.
-        bones = context.selected_pose_bones or context.active_object.pose.bones
+        bones = context.selected_pose_bones_from_active_object or context.active_object.pose.bones
 
         for bone in bones:
             if bone.name.startswith(BUILTIN_KSI_WholeCharacter.badBonePrefixes):
@@ -557,6 +565,8 @@ class BUILTIN_KSI_WholeCharacterSelected(KeyingSetInfo):
 ###############################
 
 # Delta Location
+
+
 class BUILTIN_KSI_DeltaLocation(KeyingSetInfo):
     """Insert keyframes for additional location offset"""
     bl_label = "Delta Location"
@@ -642,6 +652,7 @@ class BUILTIN_KSI_DeltaScale(KeyingSetInfo):
             ks.paths.add(id_block, path)
 
 ###############################
+
 
 # Note that this controls order of options in 'insert keyframe' menu.
 # Better try to keep some logical order here beyond mere alphabetical one, also because of menu entries shortcut.

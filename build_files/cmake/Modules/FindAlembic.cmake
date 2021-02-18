@@ -27,10 +27,6 @@ ENDIF()
 
 SET(_alembic_SEARCH_DIRS
   ${ALEMBIC_ROOT_DIR}
-  /usr/local
-  /sw # Fink
-  /opt/local # DarwinPorts
-  /opt/csw # Blastwave
   /opt/lib/alembic
 )
 
@@ -52,7 +48,7 @@ FIND_LIBRARY(ALEMBIC_LIBRARY
     lib64 lib lib/static
 )
 
-# handle the QUIETLY and REQUIRED arguments and set ALEMBIC_FOUND to TRUE if 
+# handle the QUIETLY and REQUIRED arguments and set ALEMBIC_FOUND to TRUE if
 # all listed variables are TRUE
 INCLUDE(FindPackageHandleStandardArgs)
 FIND_PACKAGE_HANDLE_STANDARD_ARGS(ALEMBIC DEFAULT_MSG ALEMBIC_LIBRARY ALEMBIC_INCLUDE_DIR)

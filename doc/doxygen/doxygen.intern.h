@@ -10,11 +10,11 @@
  *  \ingroup intern
  */
 
-/** \defgroup ctr container
+/** \defgroup clog C-Logging (CLOG)
  *  \ingroup intern
  */
 
-/** \defgroup elbeem elbeem
+/** \defgroup ctr container
  *  \ingroup intern
  */
 
@@ -67,7 +67,7 @@
  *  \ingroup audaspace
  */
 /** \defgroup audsrc Audaspace SRC
-
+ *
  *  \ingroup audaspace
  */
 /** \defgroup audffmpeg Audaspace FFMpeg
@@ -87,4 +87,3 @@
  * \ingroup intern GUI
  * \ref GHOSTPage
  */
-

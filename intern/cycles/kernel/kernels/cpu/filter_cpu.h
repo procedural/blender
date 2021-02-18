@@ -17,7 +17,7 @@
 /* Templated common declaration part of all CPU kernels. */
 
 void KERNEL_FUNCTION_FULL_NAME(filter_divide_shadow)(int sample,
-                                                     TilesInfo *tiles,
+                                                     TileInfo *tile_info,
                                                      int x,
                                                      int y,
                                                      float *unfilteredA,
@@ -25,25 +25,34 @@ void KERNEL_FUNCTION_FULL_NAME(filter_divide_shadow)(int sample,
                                                      float *sampleV,
                                                      float *sampleVV,
                                                      float *bufferV,
-                                                     int* prefilter_rect,
+                                                     int *prefilter_rect,
                                                      int buffer_pass_stride,
-                                                     int buffer_denoising_offset,
-                                                     bool use_split_variance);
+                                                     int buffer_denoising_offset);
 
 void KERNEL_FUNCTION_FULL_NAME(filter_get_feature)(int sample,
-                                                   TilesInfo *tiles,
+                                                   TileInfo *tile_info,
                                                    int m_offset,
                                                    int v_offset,
                                                    int x,
                                                    int y,
                                                    float *mean,
                                                    float *variance,
-                                                   int* prefilter_rect,
+                                                   float scale,
+                                                   int *prefilter_rect,
                                                    int buffer_pass_stride,
-                                                   int buffer_denoising_offset,
-                                                   bool use_split_variance);
+                                                   int buffer_denoising_offset);
 
-void KERNEL_FUNCTION_FULL_NAME(filter_detect_outliers)(int x, int y,
+void KERNEL_FUNCTION_FULL_NAME(filter_write_feature)(int sample,
+                                                     int x,
+                                                     int y,
+                                                     int *buffer_params,
+                                                     float *from,
+                                                     float *buffer,
+                                                     int out_offset,
+                                                     int *prefilter_rect);
+
+void KERNEL_FUNCTION_FULL_NAME(filter_detect_outliers)(int x,
+                                                       int y,
                                                        ccl_global float *image,
                                                        ccl_global float *variance,
                                                        ccl_global float *depth,
@@ -51,60 +60,57 @@ void KERNEL_FUNCTION_FULL_NAME(filter_detect_outliers)(int x, int y,
                                                        int *rect,
                                                        int pass_stride);
 
-void KERNEL_FUNCTION_FULL_NAME(filter_combine_halves)(int x, int y,
-                                                      float *mean,
-                                                      float *variance,
-                                                      float *a,
-                                                      float *b,
-                                                      int* prefilter_rect,
-                                                      int r);
+void KERNEL_FUNCTION_FULL_NAME(filter_combine_halves)(
+    int x, int y, float *mean, float *variance, float *a, float *b, int *prefilter_rect, int r);
 
-void KERNEL_FUNCTION_FULL_NAME(filter_construct_transform)(float* buffer,
+void KERNEL_FUNCTION_FULL_NAME(filter_construct_transform)(float *buffer,
+                                                           TileInfo *tiles,
                                                            int x,
                                                            int y,
                                                            int storage_ofs,
                                                            float *transform,
                                                            int *rank,
-                                                           int* rect,
+                                                           int *rect,
                                                            int pass_stride,
+                                                           int frame_stride,
+                                                           bool use_time,
                                                            int radius,
                                                            float pca_threshold);
 
 void KERNEL_FUNCTION_FULL_NAME(filter_nlm_calc_difference)(int dx,
                                                            int dy,
                                                            float *weight_image,
-                                                           float *variance,
+                                                           float *variance_image,
+                                                           float *scale_image,
                                                            float *difference_image,
-                                                           int* rect,
-                                                           int w,
+                                                           int *rect,
+                                                           int stride,
                                                            int channel_offset,
+                                                           int frame_offset,
                                                            float a,
                                                            float k_2);
 
-void KERNEL_FUNCTION_FULL_NAME(filter_nlm_blur)(float *difference_image,
-                                                float *out_image,
-                                                int* rect,
-                                                int w,
-                                                int f);
+void KERNEL_FUNCTION_FULL_NAME(filter_nlm_blur)(
+    float *difference_image, float *out_image, int *rect, int stride, int f);
 
-void KERNEL_FUNCTION_FULL_NAME(filter_nlm_calc_weight)(float *difference_image,
-                                                       float *out_image,
-                                                       int* rect,
-                                                       int w,
-                                                       int f);
+void KERNEL_FUNCTION_FULL_NAME(filter_nlm_calc_weight)(
+    float *difference_image, float *out_image, int *rect, int stride, int f);
 
 void KERNEL_FUNCTION_FULL_NAME(filter_nlm_update_output)(int dx,
                                                          int dy,
                                                          float *difference_image,
                                                          float *image,
+                                                         float *temp_image,
                                                          float *out_image,
                                                          float *accum_image,
-                                                         int* rect,
-                                                         int w,
+                                                         int *rect,
+                                                         int channel_offset,
+                                                         int stride,
                                                          int f);
 
 void KERNEL_FUNCTION_FULL_NAME(filter_nlm_construct_gramian)(int dx,
                                                              int dy,
+                                                             int t,
                                                              float *difference_image,
                                                              float *buffer,
                                                              float *transform,
@@ -112,22 +118,21 @@ void KERNEL_FUNCTION_FULL_NAME(filter_nlm_construct_gramian)(int dx,
                                                              float *XtWX,
                                                              float3 *XtWY,
                                                              int *rect,
-                                                             int *filter_rect,
-                                                             int w,
-                                                             int h,
+                                                             int *filter_window,
+                                                             int stride,
                                                              int f,
-                                                             int pass_stride);
+                                                             int pass_stride,
+                                                             int frame_offset,
+                                                             bool use_time);
 
 void KERNEL_FUNCTION_FULL_NAME(filter_nlm_normalize)(float *out_image,
                                                      float *accum_image,
-                                                     int* rect,
-                                                     int w);
+                                                     int *rect,
+                                                     int stride);
 
 void KERNEL_FUNCTION_FULL_NAME(filter_finalize)(int x,
                                                 int y,
                                                 int storage_ofs,
-                                                int w,
-                                                int h,
                                                 float *buffer,
                                                 int *rank,
                                                 float *XtWX,

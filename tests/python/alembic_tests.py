@@ -20,45 +20,22 @@
 # <pep8 compliant>
 
 import argparse
-import functools
-import shutil
 import pathlib
 import subprocess
 import sys
-import tempfile
 import unittest
 
-
-def with_tempdir(wrapped):
-    """Creates a temporary directory for the function, cleaning up after it returns normally.
-
-    When the wrapped function raises an exception, the contents of the temporary directory
-    remain available for manual inspection.
-
-    The wrapped function is called with an extra positional argument containing
-    the pathlib.Path() of the temporary directory.
-    """
-
-    @functools.wraps(wrapped)
-    def decorator(*args, **kwargs):
-        dirname = tempfile.mkdtemp(prefix='blender-alembic-test')
-        try:
-            retval = wrapped(*args, pathlib.Path(dirname), **kwargs)
-        except:
-            print('Exception in %s, not cleaning up temporary directory %s' % (wrapped, dirname))
-            raise
-        else:
-            shutil.rmtree(dirname)
-        return retval
-
-    return decorator
+from modules.test_utils import (
+    with_tempdir,
+    AbstractBlenderRunnerTest,
+)
 
 
 class AbcPropError(Exception):
     """Raised when AbstractAlembicTest.abcprop() finds an error."""
 
 
-class AbstractAlembicTest(unittest.TestCase):
+class AbstractAlembicTest(AbstractBlenderRunnerTest):
     @classmethod
     def setUpClass(cls):
         import re
@@ -73,37 +50,6 @@ class AbstractAlembicTest(unittest.TestCase):
 
         # 'abcls' array notation, like "name[16]"
         cls.abcls_array = re.compile(r'^(?P<name>[^\[]+)(\[(?P<arraysize>\d+)\])?$')
-
-    def run_blender(self, filepath: str, python_script: str, timeout: int=300) -> str:
-        """Runs Blender by opening a blendfile and executing a script.
-
-        Returns Blender's stdout + stderr combined into one string.
-
-        :param filepath: taken relative to self.testdir.
-        :param timeout: in seconds
-        """
-
-        blendfile = self.testdir / filepath
-
-        command = (
-            self.blender,
-            '--background',
-            '-noaudio',
-            '--factory-startup',
-            '--enable-autoexec',
-            str(blendfile),
-            '-E', 'CYCLES',
-            '--python-exit-code', '47',
-            '--python-expr', python_script,
-        )
-
-        proc = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                              timeout=timeout)
-        output = proc.stdout.decode('utf8')
-        if proc.returncode:
-            self.fail('Error %d running Blender:\n%s' % (proc.returncode, output))
-
-        return output
 
     def abcprop(self, filepath: pathlib.Path, proppath: str) -> dict:
         """Uses abcls to obtain compound property values from an Alembic object.
@@ -138,6 +84,7 @@ class AbstractAlembicTest(unittest.TestCase):
             'uint8_t': int,
             'int16_t': int,
             'int32_t': int,
+            'uint32_t': int,
             'uint64_t': int,
             'float64_t': float,
             'float32_t': float,
@@ -224,7 +171,7 @@ class HierarchicalAndFlatExportTest(AbstractAlembicTest):
     def test_hierarchical_export(self, tempdir: pathlib.Path):
         abc = tempdir / 'cubes_hierarchical.abc'
         script = "import bpy; bpy.ops.wm.alembic_export(filepath='%s', start=1, end=1, " \
-                 "renderable_only=True, visible_layers_only=True, flatten=False)" % abc.as_posix()
+                 "renderable_only=True, visible_objects_only=True, flatten=False)" % abc.as_posix()
         self.run_blender('cubes-hierarchy.blend', script)
 
         # Now check the resulting Alembic file.
@@ -242,7 +189,7 @@ class HierarchicalAndFlatExportTest(AbstractAlembicTest):
     def test_flat_export(self, tempdir: pathlib.Path):
         abc = tempdir / 'cubes_flat.abc'
         script = "import bpy; bpy.ops.wm.alembic_export(filepath='%s', start=1, end=1, " \
-                 "renderable_only=True, visible_layers_only=True, flatten=True)" % abc.as_posix()
+                 "renderable_only=True, visible_objects_only=True, flatten=True)" % abc.as_posix()
         self.run_blender('cubes-hierarchy.blend', script)
 
         # Now check the resulting Alembic file.
@@ -263,7 +210,7 @@ class DupliGroupExportTest(AbstractAlembicTest):
     def test_hierarchical_export(self, tempdir: pathlib.Path):
         abc = tempdir / 'dupligroup_hierarchical.abc'
         script = "import bpy; bpy.ops.wm.alembic_export(filepath='%s', start=1, end=1, " \
-                 "renderable_only=True, visible_layers_only=True, flatten=False)" % abc.as_posix()
+                 "renderable_only=True, visible_objects_only=True, flatten=False)" % abc.as_posix()
         self.run_blender('dupligroup-scene.blend', script)
 
         # Now check the resulting Alembic file.
@@ -281,7 +228,7 @@ class DupliGroupExportTest(AbstractAlembicTest):
     def test_flat_export(self, tempdir: pathlib.Path):
         abc = tempdir / 'dupligroup_hierarchical.abc'
         script = "import bpy; bpy.ops.wm.alembic_export(filepath='%s', start=1, end=1, " \
-                 "renderable_only=True, visible_layers_only=True, flatten=True)" % abc.as_posix()
+                 "renderable_only=True, visible_objects_only=True, flatten=True)" % abc.as_posix()
         self.run_blender('dupligroup-scene.blend', script)
 
         # Now check the resulting Alembic file.
@@ -302,7 +249,7 @@ class CurveExportTest(AbstractAlembicTest):
     def test_export_single_curve(self, tempdir: pathlib.Path):
         abc = tempdir / 'single-curve.abc'
         script = "import bpy; bpy.ops.wm.alembic_export(filepath='%s', start=1, end=1, " \
-                 "renderable_only=True, visible_layers_only=True, flatten=False)" % abc.as_posix()
+                 "renderable_only=True, visible_objects_only=True, flatten=False)" % abc.as_posix()
         self.run_blender('single-curve.blend', script)
 
         # Now check the resulting Alembic file.
@@ -323,7 +270,7 @@ class HairParticlesExportTest(AbstractAlembicTest):
     def _do_test(self, tempdir: pathlib.Path, export_hair: bool, export_particles: bool) -> pathlib.Path:
         abc = tempdir / 'hair-particles.abc'
         script = "import bpy; bpy.ops.wm.alembic_export(filepath='%s', start=1, end=1, " \
-                 "renderable_only=True, visible_layers_only=True, flatten=False, " \
+                 "renderable_only=True, visible_objects_only=True, flatten=False, " \
                  "export_hair=%r, export_particles=%r, as_background_job=False)" \
                  % (abc.as_posix(), export_hair, export_particles)
         self.run_blender('hair-particles.blend', script)
@@ -379,12 +326,66 @@ class HairParticlesExportTest(AbstractAlembicTest):
         self.assertIn('.faceIndices', abcprop)
 
 
+class UVMapExportTest(AbstractAlembicTest):
+    @with_tempdir
+    def test_uvmap_export(self, tempdir: pathlib.Path):
+        """Minimal test for exporting multiple UV maps on an animated mesh.
+
+        This covers the issue reported in T77021.
+        """
+        basename = 'T77021-multiple-uvmaps-animated-mesh'
+        abc = tempdir / f'{basename}.abc'
+        script = f"import bpy; bpy.ops.wm.alembic_export(filepath='{abc.as_posix()}', start=1, end=1, " \
+                 f"renderable_only=True, visible_objects_only=True, flatten=False)"
+        self.run_blender(f'{basename}.blend', script)
+
+        self.maxDiff = 1000
+
+        # The main UV map should be written to .geom
+        abcprop = self.abcprop(abc, '/Cube/CubeShape/.geom/uv')
+        self.assertEqual(abcprop['.vals'], [
+            [0.625, 0.75],
+            [0.875, 0.75],
+            [0.875, 0.5],
+            [0.625, 0.5],
+            [0.375, 1.0],
+            [0.625, 1.0],
+            [0.375, 0.75],
+            [0.375, 0.25],
+            [0.625, 0.25],
+            [0.625, 0.0],
+            [0.375, 0.0],
+            [0.125, 0.75],
+            [0.375, 0.5],
+            [0.125, 0.5],
+        ])
+
+        # The second UV map should be written to .arbGeomParams
+        abcprop = self.abcprop(abc, '/Cube/CubeShape/.geom/.arbGeomParams/Secondary')
+        self.assertEqual(abcprop['.vals'], [
+            [0.75, 0.375],
+            [0.75, 0.125],
+            [0.5, 0.125],
+            [0.5, 0.375],
+            [1.0, 0.625],
+            [1.0, 0.375],
+            [0.75, 0.625],
+            [0.25, 0.625],
+            [0.25, 0.375],
+            [0.0, 0.375],
+            [0.0, 0.625],
+            [0.75, 0.875],
+            [0.5, 0.625],
+            [0.5, 0.875],
+        ])
+
+
 class LongNamesExportTest(AbstractAlembicTest):
     @with_tempdir
     def test_export_long_names(self, tempdir: pathlib.Path):
         abc = tempdir / 'long-names.abc'
         script = "import bpy; bpy.ops.wm.alembic_export(filepath='%s', start=1, end=1, " \
-                 "renderable_only=False, visible_layers_only=False, flatten=False)" % abc.as_posix()
+                 "renderable_only=False, visible_objects_only=False, flatten=False)" % abc.as_posix()
         self.run_blender('long-names.blend', script)
 
         name_parts = [

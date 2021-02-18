@@ -5,7 +5,7 @@
  * All Rights Reserved.
  *
  * Modifications Copyright 2011, Blender Foundation.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
  * met:
@@ -36,10 +36,12 @@
 
 #include "kernel/osl/osl_closures.h"
 
+// clang-format off
 #include "kernel/kernel_compat_cpu.h"
 #include "kernel/kernel_types.h"
 #include "kernel/closure/alloc.h"
 #include "kernel/closure/emissive.h"
+// clang-format on
 
 CCL_NAMESPACE_BEGIN
 
@@ -53,24 +55,20 @@ using namespace OSL;
 /// if the provided angles are PI/2, which is the default
 ///
 class GenericEmissiveClosure : public CClosurePrimitive {
-public:
-	void setup(ShaderData *sd, int /* path_flag */, float3 weight)
-	{
-		closure_alloc(sd, sizeof(ShaderClosure), CLOSURE_EMISSION_ID, weight);
-		sd->flag |= SD_EMISSION;
-	}
+ public:
+  void setup(ShaderData *sd, int /* path_flag */, float3 weight)
+  {
+    emission_setup(sd, weight);
+  }
 };
 
 ClosureParam *closure_emission_params()
 {
-	static ClosureParam params[] = {
-		CLOSURE_STRING_KEYPARAM(GenericEmissiveClosure, label, "label"),
-		CLOSURE_FINISH_PARAM(GenericEmissiveClosure)
-	};
-	return params;
+  static ClosureParam params[] = {CLOSURE_STRING_KEYPARAM(GenericEmissiveClosure, label, "label"),
+                                  CLOSURE_FINISH_PARAM(GenericEmissiveClosure)};
+  return params;
 }
 
 CCLOSURE_PREPARE(closure_emission_prepare, GenericEmissiveClosure)
 
 CCL_NAMESPACE_END
-

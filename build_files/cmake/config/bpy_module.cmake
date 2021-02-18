@@ -12,13 +12,9 @@ set(WITH_INSTALL_PORTABLE    OFF CACHE BOOL "" FORCE)
 # no point int copying python into python
 set(WITH_PYTHON_INSTALL      OFF CACHE BOOL "" FORCE)
 
-# dont build the game engine
-set(WITH_GAMEENGINE          OFF CACHE BOOL "" FORCE)
-
 # disable audio, its possible some devs may want this but for now disable
-# so the python module doesnt hold the audio device and loads quickly.
+# so the python module doesn't hold the audio device and loads quickly.
 set(WITH_AUDASPACE           OFF CACHE BOOL "" FORCE)
-set(WITH_FFTW3               OFF CACHE BOOL "" FORCE)
 set(WITH_JACK                OFF CACHE BOOL "" FORCE)
 set(WITH_SDL                 OFF CACHE BOOL "" FORCE)
 set(WITH_OPENAL              OFF CACHE BOOL "" FORCE)
@@ -33,3 +29,23 @@ set(WITH_INTERNATIONAL       OFF CACHE BOOL "" FORCE)
 set(WITH_BULLET              OFF CACHE BOOL "" FORCE)
 set(WITH_OPENVDB             OFF CACHE BOOL "" FORCE)
 set(WITH_ALEMBIC             OFF CACHE BOOL "" FORCE)
+
+# Depends on Python install, do this to quiet warning.
+set(WITH_DRACO               OFF CACHE BOOL "" FORCE)
+
+# Note, if linking errors can be resolved, lines below can be removed.
+# Until then, disable configurations known to fail.
+
+if(UNIX AND NOT APPLE)
+  if(CMAKE_SYSTEM_NAME MATCHES "Linux")
+    # jemalloc causes linking error on import, disable.
+    set(WITH_MEM_JEMALLOC    OFF CACHE BOOL "" FORCE)
+  endif()
+elseif(APPLE)
+  # OpenMP causes linking error on build, disable.
+  set(WITH_MEM_JEMALLOC        OFF CACHE BOOL "" FORCE)
+endif()
+
+if(WIN32)
+  set(WITH_WINDOWS_BUNDLE_CRT  OFF CACHE BOOL "" FORCE)
+endif()

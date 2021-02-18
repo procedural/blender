@@ -29,10 +29,6 @@ ENDIF()
 
 SET(_xml2_SEARCH_DIRS
   ${XML2_ROOT_DIR}
-  /usr/local
-  /sw # Fink
-  /opt/local # DarwinPorts
-  /opt/csw # Blastwave
 )
 
 FIND_PATH(XML2_INCLUDE_DIR libxml2/libxml/xpath.h
@@ -51,7 +47,7 @@ FIND_LIBRARY(XML2_LIBRARY
     lib64 lib
   )
 
-# handle the QUIETLY and REQUIRED arguments and set XML2_FOUND to TRUE if 
+# handle the QUIETLY and REQUIRED arguments and set XML2_FOUND to TRUE if
 # all listed variables are TRUE
 INCLUDE(FindPackageHandleStandardArgs)
 FIND_PACKAGE_HANDLE_STANDARD_ARGS(XML2 DEFAULT_MSG

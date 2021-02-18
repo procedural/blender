@@ -15,274 +15,164 @@
  */
 
 #include "kernel/kernel_jitter.h"
+#include "util/util_hash.h"
 
 CCL_NAMESPACE_BEGIN
 
+/* Pseudo random numbers, uncomment this for debugging correlations. Only run
+ * this single threaded on a CPU for repeatable results. */
+//#define __DEBUG_CORRELATION__
+
+/* High Dimensional Sobol.
+ *
+ * Multidimensional sobol with generator matrices. Dimension 0 and 1 are equal
+ * to classic Van der Corput and Sobol sequences. */
+
 #ifdef __SOBOL__
 
-/* Skip initial numbers that are not as well distributed, especially the
- * first sequence is just 0 everywhere, which can be problematic for e.g.
- * path termination.
+/* Skip initial numbers that for some dimensions have clear patterns that
+ * don't cover the entire sample space. Ideally we would have a better
+ * progressive pattern that doesn't suffer from this problem, because even
+ * with this offset some dimensions are quite poor.
  */
-#define SOBOL_SKIP 64
+#  define SOBOL_SKIP 64
 
-/* High Dimensional Sobol. */
-
-/* Van der Corput radical inverse. */
-ccl_device uint van_der_corput(uint bits)
-{
-	bits = (bits << 16) | (bits >> 16);
-	bits = ((bits & 0x00ff00ff) << 8) | ((bits & 0xff00ff00) >> 8);
-	bits = ((bits & 0x0f0f0f0f) << 4) | ((bits & 0xf0f0f0f0) >> 4);
-	bits = ((bits & 0x33333333) << 2) | ((bits & 0xcccccccc) >> 2);
-	bits = ((bits & 0x55555555) << 1) | ((bits & 0xaaaaaaaa) >> 1);
-	return bits;
-}
-
-/* Sobol radical inverse. */
-ccl_device uint sobol(uint i)
-{
-	uint r = 0;
-	for(uint v = 1U << 31; i; i >>= 1, v ^= v >> 1) {
-		if(i & 1) {
-			r ^= v;
-		}
-	}
-	return r;
-}
-
-/* Inverse of sobol radical inverse. */
-ccl_device uint sobol_inverse(uint i)
-{
-	const uint msb = 1U << 31;
-	uint r = 0;
-	for(uint v = 1; i; i <<= 1, v ^= v << 1) {
-		if(i & msb) {
-			r ^= v;
-		}
-	}
-	return r;
-}
-
-/* Multidimensional sobol with generator matrices
- * dimension 0 and 1 are equal to van_der_corput() and sobol() respectively.
- */
 ccl_device uint sobol_dimension(KernelGlobals *kg, int index, int dimension)
 {
-	uint result = 0;
-	uint i = index;
-	for(uint j = 0; i; i >>= 1, j++) {
-		if(i & 1) {
-			result ^= kernel_tex_fetch(__sobol_directions, 32*dimension + j);
-		}
-	}
-	return result;
+  uint result = 0;
+  uint i = index + SOBOL_SKIP;
+  for (int j = 0, x; (x = find_first_set(i)); i >>= x) {
+    j += x;
+    result ^= kernel_tex_fetch(__sample_pattern_lut, 32 * dimension + j - 1);
+  }
+  return result;
 }
 
-/* Lookup index and x/y coordinate, assumes m is a power of two. */
-ccl_device uint sobol_lookup(const uint m,
-                             const uint frame,
-                             const uint ex,
-                             const uint ey,
-                             uint *x, uint *y)
-{
-	/* Shift is constant per frame. */
-	const uint shift = frame << (m << 1);
-	const uint sobol_shift = sobol(shift);
-	/* Van der Corput is its own inverse. */
-	const uint lower = van_der_corput(ex << (32 - m));
-	/* Need to compensate for ey difference and shift. */
-	const uint sobol_lower = sobol(lower);
-	const uint mask = ~-(1 << m) << (32 - m);  /* Only m upper bits. */
-	const uint delta = ((ey << (32 - m)) ^ sobol_lower ^ sobol_shift) & mask;
-	/* Only use m upper bits for the index (m is a power of two). */
-	const uint sobol_result = delta | (delta >> m);
-	const uint upper = sobol_inverse(sobol_result);
-	const uint index = shift | upper | lower;
-	*x = van_der_corput(index);
-	*y = sobol_shift ^ sobol_result ^ sobol_lower;
-	return index;
-}
+#endif /* __SOBOL__ */
 
-ccl_device_forceinline float path_rng_1D(KernelGlobals *kg,
-                                         RNG *rng,
-                                         int sample, int num_samples,
-                                         int dimension)
+ccl_device_forceinline float path_rng_1D(
+    KernelGlobals *kg, uint rng_hash, int sample, int num_samples, int dimension)
 {
+#ifdef __DEBUG_CORRELATION__
+  return (float)drand48();
+#endif
+  if (kernel_data.integrator.sampling_pattern == SAMPLING_PATTERN_PMJ) {
+    return pmj_sample_1D(kg, sample, rng_hash, dimension);
+  }
 #ifdef __CMJ__
-	if(kernel_data.integrator.sampling_pattern == SAMPLING_PATTERN_CMJ) {
-		/* Correlated multi-jitter. */
-		int p = *rng + dimension;
-		return cmj_sample_1D(sample, num_samples, p);
-	}
+#  ifdef __SOBOL__
+  if (kernel_data.integrator.sampling_pattern == SAMPLING_PATTERN_CMJ)
+#  endif
+  {
+    /* Correlated multi-jitter. */
+    int p = rng_hash + dimension;
+    return cmj_sample_1D(sample, num_samples, p);
+  }
 #endif
 
-#ifdef __SOBOL_FULL_SCREEN__
-	uint result = sobol_dimension(kg, *rng, dimension);
-	float r = (float)result * (1.0f/(float)0xFFFFFFFF);
-	return r;
-#else
-	/* Compute sobol sequence value using direction vectors. */
-	uint result = sobol_dimension(kg, sample + SOBOL_SKIP, dimension);
-	float r = (float)result * (1.0f/(float)0xFFFFFFFF);
+#ifdef __SOBOL__
+  /* Sobol sequence value using direction vectors. */
+  uint result = sobol_dimension(kg, sample, dimension);
+  float r = (float)result * (1.0f / (float)0xFFFFFFFF);
 
-	/* Cranly-Patterson rotation using rng seed */
-	float shift;
+  /* Cranly-Patterson rotation using rng seed */
+  float shift;
 
-	/* Hash rng with dimension to solve correlation issues.
-	 * See T38710, T50116.
-	 */
-	RNG tmp_rng = cmj_hash_simple(dimension, *rng);
-	shift = tmp_rng * (1.0f/(float)0xFFFFFFFF);
+  /* Hash rng with dimension to solve correlation issues.
+   * See T38710, T50116.
+   */
+  uint tmp_rng = cmj_hash_simple(dimension, rng_hash);
+  shift = tmp_rng * (1.0f / (float)0xFFFFFFFF);
 
-	return r + shift - floorf(r + shift);
+  return r + shift - floorf(r + shift);
 #endif
 }
 
 ccl_device_forceinline void path_rng_2D(KernelGlobals *kg,
-                                        RNG *rng,
-                                        int sample, int num_samples,
+                                        uint rng_hash,
+                                        int sample,
+                                        int num_samples,
                                         int dimension,
-                                        float *fx, float *fy)
+                                        float *fx,
+                                        float *fy)
 {
-#ifdef __CMJ__
-	if(kernel_data.integrator.sampling_pattern == SAMPLING_PATTERN_CMJ) {
-		/* Correlated multi-jitter. */
-		int p = *rng + dimension;
-		cmj_sample_2D(sample, num_samples, p, fx, fy);
-	}
-	else
+#ifdef __DEBUG_CORRELATION__
+  *fx = (float)drand48();
+  *fy = (float)drand48();
+  return;
 #endif
-	{
-		/* Sobol. */
-		*fx = path_rng_1D(kg, rng, sample, num_samples, dimension);
-		*fy = path_rng_1D(kg, rng, sample, num_samples, dimension + 1);
-	}
+  if (kernel_data.integrator.sampling_pattern == SAMPLING_PATTERN_PMJ) {
+    const float2 f = pmj_sample_2D(kg, sample, rng_hash, dimension);
+    *fx = f.x;
+    *fy = f.y;
+    return;
+  }
+#ifdef __CMJ__
+#  ifdef __SOBOL__
+  if (kernel_data.integrator.sampling_pattern == SAMPLING_PATTERN_CMJ)
+#  endif
+  {
+    /* Correlated multi-jitter. */
+    int p = rng_hash + dimension;
+    cmj_sample_2D(sample, num_samples, p, fx, fy);
+    return;
+  }
+#endif
+
+#ifdef __SOBOL__
+  /* Sobol. */
+  *fx = path_rng_1D(kg, rng_hash, sample, num_samples, dimension);
+  *fy = path_rng_1D(kg, rng_hash, sample, num_samples, dimension + 1);
+#endif
 }
 
 ccl_device_inline void path_rng_init(KernelGlobals *kg,
-                                     ccl_global uint *rng_state,
-                                     int sample, int num_samples,
-                                     RNG *rng,
-                                     int x, int y,
-                                     float *fx, float *fy)
+                                     int sample,
+                                     int num_samples,
+                                     uint *rng_hash,
+                                     int x,
+                                     int y,
+                                     float *fx,
+                                     float *fy)
 {
-#ifdef __SOBOL_FULL_SCREEN__
-	uint px, py;
-	uint bits = 16; /* limits us to 65536x65536 and 65536 samples */
-	uint size = 1 << bits;
-	uint frame = sample;
+  /* load state */
+  *rng_hash = hash_uint2(x, y);
+  *rng_hash ^= kernel_data.integrator.seed;
 
-	*rng = sobol_lookup(bits, frame, x, y, &px, &py);
-
-	*rng ^= kernel_data.integrator.seed;
-
-	if(sample == 0) {
-		*fx = 0.5f;
-		*fy = 0.5f;
-	}
-	else {
-		*fx = size * (float)px * (1.0f/(float)0xFFFFFFFF) - x;
-		*fy = size * (float)py * (1.0f/(float)0xFFFFFFFF) - y;
-	}
-#else
-	*rng = *rng_state;
-
-	*rng ^= kernel_data.integrator.seed;
-
-	if(sample == 0) {
-		*fx = 0.5f;
-		*fy = 0.5f;
-	}
-	else {
-		path_rng_2D(kg, rng, sample, num_samples, PRNG_FILTER_U, fx, fy);
-	}
+#ifdef __DEBUG_CORRELATION__
+  srand48(*rng_hash + sample);
 #endif
+
+  if (sample == 0) {
+    *fx = 0.5f;
+    *fy = 0.5f;
+  }
+  else {
+    path_rng_2D(kg, *rng_hash, sample, num_samples, PRNG_FILTER_U, fx, fy);
+  }
 }
-
-ccl_device void path_rng_end(KernelGlobals *kg,
-                             ccl_global uint *rng_state,
-                             RNG rng)
-{
-	/* nothing to do */
-}
-
-#else  /* __SOBOL__ */
-
-/* Linear Congruential Generator */
-
-ccl_device_forceinline float path_rng_1D(KernelGlobals *kg,
-                                         RNG *rng,
-                                         int sample, int num_samples,
-                                         int dimension)
-{
-	/* implicit mod 2^32 */
-	*rng = (1103515245*(*rng) + 12345);
-	return (float)*rng * (1.0f/(float)0xFFFFFFFF);
-}
-
-ccl_device_inline void path_rng_2D(KernelGlobals *kg,
-                                   RNG *rng,
-                                   int sample, int num_samples,
-                                   int dimension,
-                                   float *fx, float *fy)
-{
-	*fx = path_rng_1D(kg, rng, sample, num_samples, dimension);
-	*fy = path_rng_1D(kg, rng, sample, num_samples, dimension + 1);
-}
-
-ccl_device void path_rng_init(KernelGlobals *kg,
-                              ccl_global uint *rng_state,
-                              int sample, int num_samples,
-                              RNG *rng,
-                              int x, int y,
-                              float *fx, float *fy)
-{
-	/* load state */
-	*rng = *rng_state;
-
-	*rng ^= kernel_data.integrator.seed;
-
-	if(sample == 0) {
-		*fx = 0.5f;
-		*fy = 0.5f;
-	}
-	else {
-		path_rng_2D(kg, rng, sample, num_samples, PRNG_FILTER_U, fx, fy);
-	}
-}
-
-ccl_device void path_rng_end(KernelGlobals *kg,
-                             ccl_global uint *rng_state,
-                             RNG rng)
-{
-	/* store state for next sample */
-	*rng_state = rng;
-}
-
-#endif  /* __SOBOL__ */
 
 /* Linear Congruential Generator */
 
 ccl_device uint lcg_step_uint(uint *rng)
 {
-	/* implicit mod 2^32 */
-	*rng = (1103515245*(*rng) + 12345);
-	return *rng;
+  /* implicit mod 2^32 */
+  *rng = (1103515245 * (*rng) + 12345);
+  return *rng;
 }
 
 ccl_device float lcg_step_float(uint *rng)
 {
-	/* implicit mod 2^32 */
-	*rng = (1103515245*(*rng) + 12345);
-	return (float)*rng * (1.0f/(float)0xFFFFFFFF);
+  /* implicit mod 2^32 */
+  *rng = (1103515245 * (*rng) + 12345);
+  return (float)*rng * (1.0f / (float)0xFFFFFFFF);
 }
 
 ccl_device uint lcg_init(uint seed)
 {
-	uint rng = seed;
-	lcg_step_uint(&rng);
-	return rng;
+  uint rng = seed;
+  lcg_step_uint(&rng);
+  return rng;
 }
 
 /* Path Tracing Utility Functions
@@ -295,154 +185,137 @@ ccl_device uint lcg_init(uint seed)
  */
 
 ccl_device_inline float path_state_rng_1D(KernelGlobals *kg,
-                                          RNG *rng,
                                           const ccl_addr_space PathState *state,
                                           int dimension)
 {
-	return path_rng_1D(kg,
-	                   rng,
-	                   state->sample, state->num_samples,
-	                   state->rng_offset + dimension);
+  return path_rng_1D(
+      kg, state->rng_hash, state->sample, state->num_samples, state->rng_offset + dimension);
 }
 
-ccl_device_inline float path_state_rng_1D_for_decision(
-        KernelGlobals *kg,
-        RNG *rng,
-        const ccl_addr_space PathState *state,
-        int dimension)
+ccl_device_inline void path_state_rng_2D(
+    KernelGlobals *kg, const ccl_addr_space PathState *state, int dimension, float *fx, float *fy)
 {
-	/* The rng_offset is not increased for transparent bounces. if we do then
-	 * fully transparent objects can become subtly visible by the different
-	 * sampling patterns used where the transparent object is.
-	 *
-	 * however for some random numbers that will determine if we next bounce
-	 * is transparent we do need to increase the offset to avoid always making
-	 * the same decision. */
-	const int rng_offset = state->rng_offset + state->transparent_bounce * PRNG_BOUNCE_NUM;
-	return path_rng_1D(kg,
-	                   rng,
-	                   state->sample, state->num_samples,
-	                   rng_offset + dimension);
+  path_rng_2D(kg,
+              state->rng_hash,
+              state->sample,
+              state->num_samples,
+              state->rng_offset + dimension,
+              fx,
+              fy);
 }
 
-ccl_device_inline void path_state_rng_2D(KernelGlobals *kg,
-                                         RNG *rng,
-                                         const ccl_addr_space PathState *state,
-                                         int dimension,
-                                         float *fx, float *fy)
+ccl_device_inline float path_state_rng_1D_hash(KernelGlobals *kg,
+                                               const ccl_addr_space PathState *state,
+                                               uint hash)
 {
-	path_rng_2D(kg,
-	            rng,
-	            state->sample, state->num_samples,
-	            state->rng_offset + dimension,
-	            fx, fy);
+  /* Use a hash instead of dimension, this is not great but avoids adding
+   * more dimensions to each bounce which reduces quality of dimensions we
+   * are already using. */
+  return path_rng_1D(kg,
+                     cmj_hash_simple(state->rng_hash, hash),
+                     state->sample,
+                     state->num_samples,
+                     state->rng_offset);
 }
 
-ccl_device_inline float path_branched_rng_1D(
-        KernelGlobals *kg,
-        RNG *rng,
-        const ccl_addr_space PathState *state,
-        int branch,
-        int num_branches,
-        int dimension)
+ccl_device_inline float path_branched_rng_1D(KernelGlobals *kg,
+                                             uint rng_hash,
+                                             const ccl_addr_space PathState *state,
+                                             int branch,
+                                             int num_branches,
+                                             int dimension)
 {
-	return path_rng_1D(kg,
-	                   rng,
-	                   state->sample * num_branches + branch,
-	                   state->num_samples * num_branches,
-	                   state->rng_offset + dimension);
+  return path_rng_1D(kg,
+                     rng_hash,
+                     state->sample * num_branches + branch,
+                     state->num_samples * num_branches,
+                     state->rng_offset + dimension);
 }
 
-ccl_device_inline float path_branched_rng_1D_for_decision(
-        KernelGlobals *kg,
-        RNG *rng,
-        const ccl_addr_space PathState *state,
-        int branch,
-        int num_branches,
-        int dimension)
+ccl_device_inline void path_branched_rng_2D(KernelGlobals *kg,
+                                            uint rng_hash,
+                                            const ccl_addr_space PathState *state,
+                                            int branch,
+                                            int num_branches,
+                                            int dimension,
+                                            float *fx,
+                                            float *fy)
 {
-	const int rng_offset = state->rng_offset + state->transparent_bounce * PRNG_BOUNCE_NUM;
-	return path_rng_1D(kg,
-	                   rng,
-	                   state->sample * num_branches + branch,
-	                   state->num_samples * num_branches,
-	                   rng_offset + dimension);
+  path_rng_2D(kg,
+              rng_hash,
+              state->sample * num_branches + branch,
+              state->num_samples * num_branches,
+              state->rng_offset + dimension,
+              fx,
+              fy);
 }
 
-ccl_device_inline void path_branched_rng_2D(
-        KernelGlobals *kg,
-        RNG *rng,
-        const ccl_addr_space PathState *state,
-        int branch,
-        int num_branches,
-        int dimension,
-        float *fx, float *fy)
-{
-	path_rng_2D(kg,
-	            rng,
-	            state->sample * num_branches + branch,
-	            state->num_samples * num_branches,
-	            state->rng_offset + dimension,
-	            fx, fy);
-}
-
-/* Utitility functions to get light termination value,
+/* Utility functions to get light termination value,
  * since it might not be needed in many cases.
  */
-ccl_device_inline float path_state_rng_light_termination(
-        KernelGlobals *kg,
-        RNG *rng,
-        const ccl_addr_space PathState *state)
+ccl_device_inline float path_state_rng_light_termination(KernelGlobals *kg,
+                                                         const ccl_addr_space PathState *state)
 {
-	if(kernel_data.integrator.light_inv_rr_threshold > 0.0f) {
-		return path_state_rng_1D_for_decision(kg, rng, state, PRNG_LIGHT_TERMINATE);
-	}
-	return 0.0f;
+  if (kernel_data.integrator.light_inv_rr_threshold > 0.0f) {
+    return path_state_rng_1D(kg, state, PRNG_LIGHT_TERMINATE);
+  }
+  return 0.0f;
 }
 
-ccl_device_inline float path_branched_rng_light_termination(
-        KernelGlobals *kg,
-        RNG *rng,
-        const ccl_addr_space PathState *state,
-        int branch,
-        int num_branches)
+ccl_device_inline float path_branched_rng_light_termination(KernelGlobals *kg,
+                                                            uint rng_hash,
+                                                            const ccl_addr_space PathState *state,
+                                                            int branch,
+                                                            int num_branches)
 {
-	if(kernel_data.integrator.light_inv_rr_threshold > 0.0f) {
-		return path_branched_rng_1D_for_decision(kg,
-		                                         rng,
-		                                         state,
-		                                         branch,
-		                                         num_branches,
-		                                         PRNG_LIGHT_TERMINATE);
-	}
-	return 0.0f;
+  if (kernel_data.integrator.light_inv_rr_threshold > 0.0f) {
+    return path_branched_rng_1D(kg, rng_hash, state, branch, num_branches, PRNG_LIGHT_TERMINATE);
+  }
+  return 0.0f;
 }
 
-ccl_device_inline void path_state_branch(ccl_addr_space PathState *state,
-                                         int branch,
-                                         int num_branches)
+ccl_device_inline uint lcg_state_init(PathState *state, uint scramble)
 {
-	/* path is splitting into a branch, adjust so that each branch
-	 * still gets a unique sample from the same sequence */
-	state->rng_offset += PRNG_BOUNCE_NUM;
-	state->sample = state->sample*num_branches + branch;
-	state->num_samples = state->num_samples*num_branches;
+  return lcg_init(state->rng_hash + state->rng_offset + state->sample * scramble);
 }
 
-ccl_device_inline uint lcg_state_init(RNG *rng,
-                                      int rng_offset,
-                                      int sample,
-                                      uint scramble)
+ccl_device_inline uint lcg_state_init_addrspace(ccl_addr_space PathState *state, uint scramble)
 {
-	return lcg_init(*rng + rng_offset + sample*scramble);
+  return lcg_init(state->rng_hash + state->rng_offset + state->sample * scramble);
 }
 
 ccl_device float lcg_step_float_addrspace(ccl_addr_space uint *rng)
 {
-	/* Implicit mod 2^32 */
-	*rng = (1103515245*(*rng) + 12345);
-	return (float)*rng * (1.0f/(float)0xFFFFFFFF);
+  /* Implicit mod 2^32 */
+  *rng = (1103515245 * (*rng) + 12345);
+  return (float)*rng * (1.0f / (float)0xFFFFFFFF);
+}
+
+ccl_device_inline bool sample_is_even(int pattern, int sample)
+{
+  if (pattern == SAMPLING_PATTERN_PMJ) {
+    /* See Section 10.2.1, "Progressive Multi-Jittered Sample Sequences", Christensen et al.
+     * We can use this to get divide sample sequence into two classes for easier variance
+     * estimation. */
+#if defined(__GNUC__) && !defined(__KERNEL_GPU__)
+    return __builtin_popcount(sample & 0xaaaaaaaa) & 1;
+#elif defined(__NVCC__)
+    return __popc(sample & 0xaaaaaaaa) & 1;
+#elif defined(__KERNEL_OPENCL__)
+    return popcount(sample & 0xaaaaaaaa) & 1;
+#else
+    /* TODO(Stefan): popcnt intrinsic for Windows with fallback for older CPUs. */
+    int i = sample & 0xaaaaaaaa;
+    i = i - ((i >> 1) & 0x55555555);
+    i = (i & 0x33333333) + ((i >> 2) & 0x33333333);
+    i = (((i + (i >> 4)) & 0xF0F0F0F) * 0x1010101) >> 24;
+    return i & 1;
+#endif
+  }
+  else {
+    /* TODO(Stefan): Are there reliable ways of dividing CMJ and Sobol into two classes? */
+    return sample & 0x1;
+  }
 }
 
 CCL_NAMESPACE_END
-

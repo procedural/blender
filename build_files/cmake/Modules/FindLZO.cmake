@@ -29,10 +29,6 @@ ENDIF()
 
 SET(_lzo_SEARCH_DIRS
   ${LZO_ROOT_DIR}
-  /usr/local
-  /sw # Fink
-  /opt/local # DarwinPorts
-  /opt/csw # Blastwave
 )
 
 FIND_PATH(LZO_INCLUDE_DIR lzo/lzo1x.h
@@ -51,7 +47,7 @@ FIND_LIBRARY(LZO_LIBRARY
     lib64 lib
   )
 
-# handle the QUIETLY and REQUIRED arguments and set LZO_FOUND to TRUE if 
+# handle the QUIETLY and REQUIRED arguments and set LZO_FOUND to TRUE if
 # all listed variables are TRUE
 INCLUDE(FindPackageHandleStandardArgs)
 FIND_PACKAGE_HANDLE_STANDARD_ARGS(LZO DEFAULT_MSG

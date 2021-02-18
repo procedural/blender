@@ -47,10 +47,6 @@ SET(_openexr_FIND_COMPONENTS
 
 SET(_openexr_SEARCH_DIRS
   ${OPENEXR_ROOT_DIR}
-  /usr/local
-  /sw # Fink
-  /opt/local # DarwinPorts
-  /opt/csw # Blastwave
   /opt/lib/openexr
 )
 
@@ -107,7 +103,8 @@ FOREACH(COMPONENT ${_openexr_FIND_COMPONENTS})
 
   FIND_LIBRARY(OPENEXR_${UPPERCOMPONENT}_LIBRARY
     NAMES
-      ${COMPONENT}-${_openexr_libs_ver} ${COMPONENT} 
+      ${COMPONENT}-${_openexr_libs_ver} ${COMPONENT}
+    NAMES_PER_DIR
     HINTS
       ${_openexr_SEARCH_DIRS}
     PATH_SUFFIXES
@@ -118,7 +115,7 @@ ENDFOREACH()
 
 UNSET(_openexr_libs_ver)
 
-# handle the QUIETLY and REQUIRED arguments and set OPENEXR_FOUND to TRUE if 
+# handle the QUIETLY and REQUIRED arguments and set OPENEXR_FOUND to TRUE if
 # all listed variables are TRUE
 INCLUDE(FindPackageHandleStandardArgs)
 FIND_PACKAGE_HANDLE_STANDARD_ARGS(OpenEXR  DEFAULT_MSG

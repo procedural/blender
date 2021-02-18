@@ -77,6 +77,7 @@ tcuDriverGetVersion *cuDriverGetVersion;
 tcuDeviceGet *cuDeviceGet;
 tcuDeviceGetCount *cuDeviceGetCount;
 tcuDeviceGetName *cuDeviceGetName;
+tcuDeviceGetUuid *cuDeviceGetUuid;
 tcuDeviceTotalMem_v2 *cuDeviceTotalMem_v2;
 tcuDeviceGetAttribute *cuDeviceGetAttribute;
 tcuDeviceGetProperties *cuDeviceGetProperties;
@@ -184,12 +185,17 @@ tcuMipmappedArrayCreate *cuMipmappedArrayCreate;
 tcuMipmappedArrayGetLevel *cuMipmappedArrayGetLevel;
 tcuMipmappedArrayDestroy *cuMipmappedArrayDestroy;
 tcuPointerGetAttribute *cuPointerGetAttribute;
+tcuMemPrefetchAsync *cuMemPrefetchAsync;
+tcuMemAdvise *cuMemAdvise;
+tcuMemRangeGetAttribute *cuMemRangeGetAttribute;
+tcuMemRangeGetAttributes *cuMemRangeGetAttributes;
 tcuPointerSetAttribute *cuPointerSetAttribute;
 tcuPointerGetAttributes *cuPointerGetAttributes;
 tcuStreamCreate *cuStreamCreate;
 tcuStreamCreateWithPriority *cuStreamCreateWithPriority;
 tcuStreamGetPriority *cuStreamGetPriority;
 tcuStreamGetFlags *cuStreamGetFlags;
+tcuStreamGetCtx *cuStreamGetCtx;
 tcuStreamWaitEvent *cuStreamWaitEvent;
 tcuStreamAddCallback *cuStreamAddCallback;
 tcuStreamAttachMemAsync *cuStreamAttachMemAsync;
@@ -202,10 +208,18 @@ tcuEventQuery *cuEventQuery;
 tcuEventSynchronize *cuEventSynchronize;
 tcuEventDestroy_v2 *cuEventDestroy_v2;
 tcuEventElapsedTime *cuEventElapsedTime;
+tcuStreamWaitValue32 *cuStreamWaitValue32;
+tcuStreamWaitValue64 *cuStreamWaitValue64;
+tcuStreamWriteValue32 *cuStreamWriteValue32;
+tcuStreamWriteValue64 *cuStreamWriteValue64;
+tcuStreamBatchMemOp *cuStreamBatchMemOp;
 tcuFuncGetAttribute *cuFuncGetAttribute;
+tcuFuncSetAttribute *cuFuncSetAttribute;
 tcuFuncSetCacheConfig *cuFuncSetCacheConfig;
 tcuFuncSetSharedMemConfig *cuFuncSetSharedMemConfig;
 tcuLaunchKernel *cuLaunchKernel;
+tcuLaunchCooperativeKernel *cuLaunchCooperativeKernel;
+tcuLaunchCooperativeKernelMultiDevice *cuLaunchCooperativeKernelMultiDevice;
 tcuFuncSetBlockShape *cuFuncSetBlockShape;
 tcuFuncSetSharedSize *cuFuncSetSharedSize;
 tcuParamSetSize *cuParamSetSize;
@@ -231,6 +245,7 @@ tcuTexRefSetMipmapFilterMode *cuTexRefSetMipmapFilterMode;
 tcuTexRefSetMipmapLevelBias *cuTexRefSetMipmapLevelBias;
 tcuTexRefSetMipmapLevelClamp *cuTexRefSetMipmapLevelClamp;
 tcuTexRefSetMaxAnisotropy *cuTexRefSetMaxAnisotropy;
+tcuTexRefSetBorderColor *cuTexRefSetBorderColor;
 tcuTexRefSetFlags *cuTexRefSetFlags;
 tcuTexRefGetAddress_v2 *cuTexRefGetAddress_v2;
 tcuTexRefGetArray *cuTexRefGetArray;
@@ -242,6 +257,7 @@ tcuTexRefGetMipmapFilterMode *cuTexRefGetMipmapFilterMode;
 tcuTexRefGetMipmapLevelBias *cuTexRefGetMipmapLevelBias;
 tcuTexRefGetMipmapLevelClamp *cuTexRefGetMipmapLevelClamp;
 tcuTexRefGetMaxAnisotropy *cuTexRefGetMaxAnisotropy;
+tcuTexRefGetBorderColor *cuTexRefGetBorderColor;
 tcuTexRefGetFlags *cuTexRefGetFlags;
 tcuTexRefCreate *cuTexRefCreate;
 tcuTexRefDestroy *cuTexRefDestroy;
@@ -258,6 +274,7 @@ tcuSurfObjectGetResourceDesc *cuSurfObjectGetResourceDesc;
 tcuDeviceCanAccessPeer *cuDeviceCanAccessPeer;
 tcuCtxEnablePeerAccess *cuCtxEnablePeerAccess;
 tcuCtxDisablePeerAccess *cuCtxDisablePeerAccess;
+tcuDeviceGetP2PAttribute *cuDeviceGetP2PAttribute;
 tcuGraphicsUnregisterResource *cuGraphicsUnregisterResource;
 tcuGraphicsSubResourceGetMappedArray *cuGraphicsSubResourceGetMappedArray;
 tcuGraphicsResourceGetMappedMipmappedArray *cuGraphicsResourceGetMappedMipmappedArray;
@@ -289,6 +306,8 @@ tnvrtcGetPTXSize *nvrtcGetPTXSize;
 tnvrtcGetPTX *nvrtcGetPTX;
 tnvrtcGetProgramLogSize *nvrtcGetProgramLogSize;
 tnvrtcGetProgramLog *nvrtcGetProgramLog;
+tnvrtcAddNameExpression *nvrtcAddNameExpression;
+tnvrtcGetLoweredName *nvrtcGetLoweredName;
 
 
 static DynamicLibrary dynamic_library_open_find(const char **paths) {
@@ -303,34 +322,25 @@ static DynamicLibrary dynamic_library_open_find(const char **paths) {
   return NULL;
 }
 
-static void cuewExit(void) {
-  if(cuda_lib != NULL) {
+/* Implementation function. */
+static void cuewCudaExit(void) {
+  if (cuda_lib != NULL) {
     /*  Ignore errors. */
     dynamic_library_close(cuda_lib);
     cuda_lib = NULL;
   }
 }
 
-/* Implementation function. */
-int cuewInit(void) {
+static int cuewCudaInit(void) {
   /* Library paths. */
 #ifdef _WIN32
   /* Expected in c:/windows/system or similar, no path needed. */
   const char *cuda_paths[] = {"nvcuda.dll", NULL};
-  const char *nvrtc_paths[] = {"nvrtc.dll", NULL};
 #elif defined(__APPLE__)
   /* Default installation path. */
   const char *cuda_paths[] = {"/usr/local/cuda/lib/libcuda.dylib", NULL};
-  const char *nvrtc_paths[] = {"/usr/local/cuda/lib/libnvrtc.dylib", NULL};
 #else
-  const char *cuda_paths[] = {"libcuda.so", NULL};
-  const char *nvrtc_paths[] = {"libnvrtc.so",
-#  if defined(__x86_64__) || defined(_M_X64)
-                               "/usr/local/cuda/lib64/libnvrtc.so",
-#else
-                               "/usr/local/cuda/lib/libnvrtc.so",
-#endif
-                               NULL};
+  const char *cuda_paths[] = {"libcuda.so", "libcuda.so.1", NULL};
 #endif
   static int initialized = 0;
   static int result = 0;
@@ -342,7 +352,7 @@ int cuewInit(void) {
 
   initialized = 1;
 
-  error = atexit(cuewExit);
+  error = atexit(cuewCudaExit);
   if (error) {
     result = CUEW_ERROR_ATEXIT_FAILED;
     return result;
@@ -350,9 +360,7 @@ int cuewInit(void) {
 
   /* Load library. */
   cuda_lib = dynamic_library_open_find(cuda_paths);
-  nvrtc_lib = dynamic_library_open_find(nvrtc_paths);
 
-  /* CUDA library is mandatory to have, while nvrtc might be missing. */
   if (cuda_lib == NULL) {
     result = CUEW_ERROR_OPEN_FAILED;
     return result;
@@ -379,6 +387,7 @@ int cuewInit(void) {
   CUDA_LIBRARY_FIND(cuDeviceGet);
   CUDA_LIBRARY_FIND(cuDeviceGetCount);
   CUDA_LIBRARY_FIND(cuDeviceGetName);
+  CUDA_LIBRARY_FIND(cuDeviceGetUuid);
   CUDA_LIBRARY_FIND(cuDeviceTotalMem_v2);
   CUDA_LIBRARY_FIND(cuDeviceGetAttribute);
   CUDA_LIBRARY_FIND(cuDeviceGetProperties);
@@ -486,12 +495,17 @@ int cuewInit(void) {
   CUDA_LIBRARY_FIND(cuMipmappedArrayGetLevel);
   CUDA_LIBRARY_FIND(cuMipmappedArrayDestroy);
   CUDA_LIBRARY_FIND(cuPointerGetAttribute);
+  CUDA_LIBRARY_FIND(cuMemPrefetchAsync);
+  CUDA_LIBRARY_FIND(cuMemAdvise);
+  CUDA_LIBRARY_FIND(cuMemRangeGetAttribute);
+  CUDA_LIBRARY_FIND(cuMemRangeGetAttributes);
   CUDA_LIBRARY_FIND(cuPointerSetAttribute);
   CUDA_LIBRARY_FIND(cuPointerGetAttributes);
   CUDA_LIBRARY_FIND(cuStreamCreate);
   CUDA_LIBRARY_FIND(cuStreamCreateWithPriority);
   CUDA_LIBRARY_FIND(cuStreamGetPriority);
   CUDA_LIBRARY_FIND(cuStreamGetFlags);
+  CUDA_LIBRARY_FIND(cuStreamGetCtx);
   CUDA_LIBRARY_FIND(cuStreamWaitEvent);
   CUDA_LIBRARY_FIND(cuStreamAddCallback);
   CUDA_LIBRARY_FIND(cuStreamAttachMemAsync);
@@ -504,10 +518,18 @@ int cuewInit(void) {
   CUDA_LIBRARY_FIND(cuEventSynchronize);
   CUDA_LIBRARY_FIND(cuEventDestroy_v2);
   CUDA_LIBRARY_FIND(cuEventElapsedTime);
+  CUDA_LIBRARY_FIND(cuStreamWaitValue32);
+  CUDA_LIBRARY_FIND(cuStreamWaitValue64);
+  CUDA_LIBRARY_FIND(cuStreamWriteValue32);
+  CUDA_LIBRARY_FIND(cuStreamWriteValue64);
+  CUDA_LIBRARY_FIND(cuStreamBatchMemOp);
   CUDA_LIBRARY_FIND(cuFuncGetAttribute);
+  CUDA_LIBRARY_FIND(cuFuncSetAttribute);
   CUDA_LIBRARY_FIND(cuFuncSetCacheConfig);
   CUDA_LIBRARY_FIND(cuFuncSetSharedMemConfig);
   CUDA_LIBRARY_FIND(cuLaunchKernel);
+  CUDA_LIBRARY_FIND(cuLaunchCooperativeKernel);
+  CUDA_LIBRARY_FIND(cuLaunchCooperativeKernelMultiDevice);
   CUDA_LIBRARY_FIND(cuFuncSetBlockShape);
   CUDA_LIBRARY_FIND(cuFuncSetSharedSize);
   CUDA_LIBRARY_FIND(cuParamSetSize);
@@ -533,6 +555,7 @@ int cuewInit(void) {
   CUDA_LIBRARY_FIND(cuTexRefSetMipmapLevelBias);
   CUDA_LIBRARY_FIND(cuTexRefSetMipmapLevelClamp);
   CUDA_LIBRARY_FIND(cuTexRefSetMaxAnisotropy);
+  CUDA_LIBRARY_FIND(cuTexRefSetBorderColor);
   CUDA_LIBRARY_FIND(cuTexRefSetFlags);
   CUDA_LIBRARY_FIND(cuTexRefGetAddress_v2);
   CUDA_LIBRARY_FIND(cuTexRefGetArray);
@@ -544,6 +567,7 @@ int cuewInit(void) {
   CUDA_LIBRARY_FIND(cuTexRefGetMipmapLevelBias);
   CUDA_LIBRARY_FIND(cuTexRefGetMipmapLevelClamp);
   CUDA_LIBRARY_FIND(cuTexRefGetMaxAnisotropy);
+  CUDA_LIBRARY_FIND(cuTexRefGetBorderColor);
   CUDA_LIBRARY_FIND(cuTexRefGetFlags);
   CUDA_LIBRARY_FIND(cuTexRefCreate);
   CUDA_LIBRARY_FIND(cuTexRefDestroy);
@@ -560,6 +584,7 @@ int cuewInit(void) {
   CUDA_LIBRARY_FIND(cuDeviceCanAccessPeer);
   CUDA_LIBRARY_FIND(cuCtxEnablePeerAccess);
   CUDA_LIBRARY_FIND(cuCtxDisablePeerAccess);
+  CUDA_LIBRARY_FIND(cuDeviceGetP2PAttribute);
   CUDA_LIBRARY_FIND(cuGraphicsUnregisterResource);
   CUDA_LIBRARY_FIND(cuGraphicsSubResourceGetMappedArray);
   CUDA_LIBRARY_FIND(cuGraphicsResourceGetMappedMipmappedArray);
@@ -582,25 +607,104 @@ int cuewInit(void) {
   CUDA_LIBRARY_FIND(cuGLMapBufferObjectAsync_v2);
   CUDA_LIBRARY_FIND(cuGLUnmapBufferObjectAsync);
 
+  result = CUEW_SUCCESS;
+  return result;
+}
 
+static void cuewExitNvrtc(void) {
   if (nvrtc_lib != NULL) {
-    NVRTC_LIBRARY_FIND(nvrtcGetErrorString);
-    NVRTC_LIBRARY_FIND(nvrtcVersion);
-    NVRTC_LIBRARY_FIND(nvrtcCreateProgram);
-    NVRTC_LIBRARY_FIND(nvrtcDestroyProgram);
-    NVRTC_LIBRARY_FIND(nvrtcCompileProgram);
-    NVRTC_LIBRARY_FIND(nvrtcGetPTXSize);
-    NVRTC_LIBRARY_FIND(nvrtcGetPTX);
-    NVRTC_LIBRARY_FIND(nvrtcGetProgramLogSize);
-    NVRTC_LIBRARY_FIND(nvrtcGetProgramLog);
+    /*  Ignore errors. */
+    dynamic_library_close(nvrtc_lib);
+    nvrtc_lib = NULL;
   }
+}
+
+static int cuewNvrtcInit(void) {
+  /* Library paths. */
+#ifdef _WIN32
+  /* Expected in c:/windows/system or similar, no path needed. */
+  const char *nvrtc_paths[] = {"nvrtc64_101_0.dll",
+                               "nvrtc64_100_0.dll",
+                               "nvrtc64_91.dll",
+                               "nvrtc64_90.dll",
+                               "nvrtc64_80.dll",
+                               NULL};
+#elif defined(__APPLE__)
+  /* Default installation path. */
+  const char *nvrtc_paths[] = {"/usr/local/cuda/lib/libnvrtc.dylib", NULL};
+#else
+  const char *nvrtc_paths[] = {"libnvrtc.so",
+#  if defined(__x86_64__) || defined(_M_X64)
+                               "/usr/local/cuda/lib64/libnvrtc.so",
+#else
+                               "/usr/local/cuda/lib/libnvrtc.so",
+#endif
+                               NULL};
+#endif
+  static int initialized = 0;
+  static int result = 0;
+  int error;
+
+  if (initialized) {
+    return result;
+  }
+
+  initialized = 1;
+
+  error = atexit(cuewExitNvrtc);
+  if (error) {
+    result = CUEW_ERROR_ATEXIT_FAILED;
+    return result;
+  }
+
+  /* Load library. */
+  nvrtc_lib = dynamic_library_open_find(nvrtc_paths);
+
+  if (nvrtc_lib == NULL) {
+    result = CUEW_ERROR_OPEN_FAILED;
+    return result;
+  }
+
+  NVRTC_LIBRARY_FIND(nvrtcGetErrorString);
+  NVRTC_LIBRARY_FIND(nvrtcVersion);
+  NVRTC_LIBRARY_FIND(nvrtcCreateProgram);
+  NVRTC_LIBRARY_FIND(nvrtcDestroyProgram);
+  NVRTC_LIBRARY_FIND(nvrtcCompileProgram);
+  NVRTC_LIBRARY_FIND(nvrtcGetPTXSize);
+  NVRTC_LIBRARY_FIND(nvrtcGetPTX);
+  NVRTC_LIBRARY_FIND(nvrtcGetProgramLogSize);
+  NVRTC_LIBRARY_FIND(nvrtcGetProgramLog);
+  NVRTC_LIBRARY_FIND(nvrtcAddNameExpression);
+  NVRTC_LIBRARY_FIND(nvrtcGetLoweredName);
 
   result = CUEW_SUCCESS;
   return result;
 }
 
+
+int cuewInit(cuuint32_t flags) {
+  int result = CUEW_SUCCESS;
+
+  if (flags & CUEW_INIT_CUDA) {
+    result = cuewCudaInit();
+    if (result != CUEW_SUCCESS) {
+      return result;
+    }
+  }
+
+  if (flags & CUEW_INIT_NVRTC) {
+    result = cuewNvrtcInit();
+    if (result != CUEW_SUCCESS) {
+      return result;
+    }
+  }
+
+  return result;
+}
+
+
 const char *cuewErrorString(CUresult result) {
-  switch(result) {
+  switch (result) {
     case CUDA_SUCCESS: return "No errors";
     case CUDA_ERROR_INVALID_VALUE: return "Invalid value";
     case CUDA_ERROR_OUT_OF_MEMORY: return "Out of memory";
@@ -630,6 +734,8 @@ const char *cuewErrorString(CUresult result) {
     case CUDA_ERROR_PEER_ACCESS_UNSUPPORTED: return "Peer access unsupported";
     case CUDA_ERROR_INVALID_PTX: return "Invalid ptx";
     case CUDA_ERROR_INVALID_GRAPHICS_CONTEXT: return "Invalid graphics context";
+    case CUDA_ERROR_NVLINK_UNCORRECTABLE: return "Nvlink uncorrectable";
+    case CUDA_ERROR_JIT_COMPILER_NOT_FOUND: return "Jit compiler not found";
     case CUDA_ERROR_INVALID_SOURCE: return "Invalid source";
     case CUDA_ERROR_FILE_NOT_FOUND: return "File not found";
     case CUDA_ERROR_SHARED_OBJECT_SYMBOL_NOT_FOUND: return "Link to a shared object failed to resolve";
@@ -656,6 +762,7 @@ const char *cuewErrorString(CUresult result) {
     case CUDA_ERROR_INVALID_ADDRESS_SPACE: return "Invalid address space";
     case CUDA_ERROR_INVALID_PC: return "Invalid pc";
     case CUDA_ERROR_LAUNCH_FAILED: return "Launch failed";
+    case CUDA_ERROR_COOPERATIVE_LAUNCH_TOO_LARGE: return "Cooperative launch too large";
     case CUDA_ERROR_NOT_PERMITTED: return "Not permitted";
     case CUDA_ERROR_NOT_SUPPORTED: return "Not supported";
     case CUDA_ERROR_UNKNOWN: return "Unknown error";
@@ -691,7 +798,10 @@ static int path_exists(const char *path) {
 
 const char *cuewCompilerPath(void) {
 #ifdef _WIN32
-  const char *defaultpaths[] = {"C:/CUDA/bin", NULL};
+  const char *defaultpaths[] = {
+    "C:/CUDA/bin",
+    "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v10.1/bin",
+    NULL};
   const char *executable = "nvcc.exe";
 #else
   const char *defaultpaths[] = {
@@ -713,32 +823,45 @@ const char *cuewCompilerPath(void) {
 
   if (binpath) {
     path_join(binpath, executable, sizeof(nvcc), nvcc);
-    if (path_exists(nvcc))
+    if (path_exists(nvcc)) {
       return nvcc;
+    }
   }
 
   for (i = 0; defaultpaths[i]; ++i) {
     path_join(defaultpaths[i], executable, sizeof(nvcc), nvcc);
-    if (path_exists(nvcc))
+    if (path_exists(nvcc)) {
       return nvcc;
+    }
   }
 
-#ifndef _WIN32
   {
+#ifdef _WIN32
+    FILE *handle = popen("where nvcc", "r");
+#else
     FILE *handle = popen("which nvcc", "r");
+#endif
     if (handle) {
       char buffer[4096] = {0};
       int len = fread(buffer, 1, sizeof(buffer) - 1, handle);
       buffer[len] = '\0';
       pclose(handle);
-
-      if (buffer[0])
+      if (buffer[0]) {
         return "nvcc";
+      }
     }
   }
-#endif
 
   return NULL;
+}
+
+int cuewNvrtcVersion(void) {
+  int major, minor;
+  if (nvrtcVersion) {
+    nvrtcVersion(&major, &minor);
+    return 10 * major + minor;
+  }
+  return 0;
 }
 
 int cuewCompilerVersion(void) {
@@ -751,12 +874,14 @@ int cuewCompilerVersion(void) {
   char output[65536] = "\0";
   char command[65536] = "\0";
 
-  if (path == NULL)
+  if (path == NULL) {
     return 0;
+  }
 
   /* get --version output */
-  strncpy(command, path, sizeof(command));
-  strncat(command, " --version", sizeof(command) - strlen(path));
+  strncat(command, "\"", 1);
+  strncat(command, path, sizeof(command) - 1);
+  strncat(command, "\" --version", sizeof(command) - strlen(path) - 1);
   pipe = popen(command, "r");
   if (!pipe) {
     fprintf(stderr, "CUDA: failed to run compiler to retrieve version");
@@ -786,4 +911,3 @@ int cuewCompilerVersion(void) {
 
   return 10 * major + minor;
 }
-

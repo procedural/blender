@@ -1,6 +1,4 @@
 /*
- * ***** BEGIN GPL LICENSE BLOCK *****
- *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
  * as published by the Free Software Foundation; either version 2
@@ -17,40 +15,37 @@
  *
  * The Original Code is Copyright (C) 2009 by Janne Karhu.
  * All rights reserved.
- *
- * The Original Code is: all of this file.
- *
- * Contributor(s): none yet.
- *
- * ***** END GPL LICENSE BLOCK *****
  */
 
 #ifndef __BKE_BOIDS_H__
 #define __BKE_BOIDS_H__
 
-/** \file BKE_boids.h
- *  \ingroup bke
- *  \since 2009
- *  \author Janne Karhu
+/** \file
+ * \ingroup bke
  */
 
 #include "DNA_boid_types.h"
+#include "DNA_particle_types.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 struct RNG;
 
 typedef struct BoidBrainData {
-	struct ParticleSimulationData *sim;
-	struct ParticleSettings *part;
-	float timestep, cfra, dfra;
-	float wanted_co[3], wanted_speed;
+  struct ParticleSimulationData *sim;
+  struct ParticleSettings *part;
+  float timestep, cfra, dfra;
+  float wanted_co[3], wanted_speed;
 
-	/* Goal stuff */
-	struct Object *goal_ob;
-	float goal_co[3];
-	float goal_nor[3];
-	float goal_priority;
+  /* Goal stuff */
+  struct Object *goal_ob;
+  float goal_co[3];
+  float goal_nor[3];
+  float goal_priority;
 
-	struct RNG *rng;
+  struct RNG *rng;
 } BoidBrainData;
 
 void boids_precalc_rules(struct ParticleSettings *part, float cfra);
@@ -63,4 +58,9 @@ BoidState *boid_duplicate_state(BoidSettings *boids, BoidState *state);
 void boid_free_settings(BoidSettings *boids);
 BoidSettings *boid_copy_settings(const BoidSettings *boids);
 BoidState *boid_get_current_state(BoidSettings *boids);
+
+#ifdef __cplusplus
+}
+#endif
+
 #endif

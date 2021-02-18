@@ -444,8 +444,6 @@ if(NOT GFLAGS_FOUND)
     /opt/local/var/macports/software # Mac OS X.
     /opt/local/include
     /usr/include
-    /sw/include # Fink
-    /opt/csw/include # Blastwave
     /opt/lib/gflags/include)
 
   list(APPEND GFLAGS_CHECK_PATH_SUFFIXES
@@ -458,8 +456,6 @@ if(NOT GFLAGS_FOUND)
     /usr/local/homebrew/lib # Mac OS X.
     /opt/local/lib
     /usr/lib
-    /sw/lib # Fink
-    /opt/csw/lib # Blastwave
     /opt/lib/gflags/lib)
   list(APPEND GFLAGS_CHECK_LIBRARY_SUFFIXES
     gflags/lib # Windows (for C:/Program Files prefix).

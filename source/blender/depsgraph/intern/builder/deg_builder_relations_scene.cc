@@ -1,6 +1,4 @@
 /*
- * ***** BEGIN GPL LICENSE BLOCK *****
- *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
  * as published by the Free Software Foundation; either version 2
@@ -17,115 +15,60 @@
  *
  * The Original Code is Copyright (C) 2013 Blender Foundation.
  * All rights reserved.
- *
- * Original Author: Joshua Leung
- * Contributor(s): Based on original depsgraph.c code - Blender Foundation (2005-2013)
- *
- * ***** END GPL LICENSE BLOCK *****
  */
 
-/** \file blender/depsgraph/intern/builder/deg_builder_relations_scene.cc
- *  \ingroup depsgraph
- *
- * Methods for constructing depsgraph
+/** \file
+ * \ingroup depsgraph
  */
 
 #include "intern/builder/deg_builder_relations.h"
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <cstring>  /* required for STREQ later on. */
-
-#include "MEM_guardedalloc.h"
-
-#include "BLI_utildefines.h"
-#include "BLI_blenlib.h"
-
-extern "C" {
-#include "DNA_node_types.h"
-#include "DNA_object_types.h"
 #include "DNA_scene_types.h"
-
-#include "BKE_main.h"
-#include "BKE_node.h"
-} /* extern "C" */
-
-#include "DEG_depsgraph.h"
-#include "DEG_depsgraph_build.h"
-
-#include "intern/builder/deg_builder.h"
-#include "intern/builder/deg_builder_pchanmap.h"
-
-#include "intern/nodes/deg_node.h"
-#include "intern/nodes/deg_node_component.h"
-#include "intern/nodes/deg_node_operation.h"
-
-#include "intern/depsgraph_intern.h"
-#include "intern/depsgraph_types.h"
-
-#include "util/deg_util_foreach.h"
 
 namespace DEG {
 
-void DepsgraphRelationBuilder::build_scene(Main *bmain, Scene *scene)
+void DepsgraphRelationBuilder::build_scene_render(Scene *scene, ViewLayer *view_layer)
 {
-	if (scene->set) {
-		build_scene(bmain, scene->set);
-	}
+  scene_ = scene;
+  const bool build_compositor = (scene->r.scemode & R_DOCOMP);
+  const bool build_sequencer = (scene->r.scemode & R_DOSEQ);
+  build_scene_parameters(scene);
+  build_animdata(&scene->id);
+  build_scene_audio(scene);
+  if (build_compositor) {
+    build_scene_compositor(scene);
+  }
+  if (build_sequencer) {
+    build_scene_sequencer(scene);
+    build_scene_speakers(scene, view_layer);
+  }
+  if (scene->camera != nullptr) {
+    build_object(nullptr, scene->camera);
+  }
+}
 
-	/* scene objects */
-	LINKLIST_FOREACH (Base *, base, &scene->base) {
-		Object *ob = base->object;
-		build_object(bmain, scene, ob);
-	}
+void DepsgraphRelationBuilder::build_scene_parameters(Scene *scene)
+{
+  if (built_map_.checkIsBuiltAndTag(scene, BuilderMap::TAG_PARAMETERS)) {
+    return;
+  }
+  build_idproperties(scene->id.properties);
+  build_parameters(&scene->id);
+  OperationKey parameters_eval_key(
+      &scene->id, NodeType::PARAMETERS, OperationCode::PARAMETERS_EXIT);
+  OperationKey scene_eval_key(&scene->id, NodeType::PARAMETERS, OperationCode::SCENE_EVAL);
+  add_relation(parameters_eval_key, scene_eval_key, "Parameters -> Scene Eval");
+}
 
-	/* rigidbody */
-	if (scene->rigidbody_world) {
-		build_rigidbody(scene);
-	}
-
-	/* scene's animation and drivers */
-	if (scene->adt) {
-		build_animdata(&scene->id);
-	}
-
-	/* world */
-	if (scene->world) {
-		build_world(scene->world);
-	}
-
-	/* compo nodes */
-	if (scene->nodetree) {
-		build_compositor(scene);
-	}
-
-	/* grease pencil */
-	if (scene->gpd) {
-		build_gpencil(scene->gpd);
-	}
-
-	/* Masks. */
-	LINKLIST_FOREACH (Mask *, mask, &bmain->mask) {
-		build_mask(mask);
-	}
-
-	/* Movie clips. */
-	LINKLIST_FOREACH (MovieClip *, clip, &bmain->movieclip) {
-		build_movieclip(clip);
-	}
-
-	for (Depsgraph::OperationNodes::const_iterator it_op = m_graph->operations.begin();
-	     it_op != m_graph->operations.end();
-	     ++it_op)
-	{
-		OperationDepsNode *node = *it_op;
-		IDDepsNode *id_node = node->owner->owner;
-		ID *id = id_node->id;
-		if (GS(id->name) == ID_OB) {
-			Object *object = (Object *)id;
-			object->customdata_mask |= node->customdata_mask;
-		}
-	}
+void DepsgraphRelationBuilder::build_scene_compositor(Scene *scene)
+{
+  if (built_map_.checkIsBuiltAndTag(scene, BuilderMap::TAG_SCENE_COMPOSITOR)) {
+    return;
+  }
+  if (scene->nodetree == nullptr) {
+    return;
+  }
+  build_nodetree(scene->nodetree);
 }
 
 }  // namespace DEG

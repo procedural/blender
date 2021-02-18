@@ -1,6 +1,4 @@
 /*
- * ***** BEGIN GPL LICENSE BLOCK *****
- *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
  * as published by the Free Software Foundation; either version 2
@@ -17,20 +15,24 @@
  *
  * The Original Code is Copyright (C) 2001-2002 by NaN Holding BV.
  * All rights reserved.
- *
- * Contributor(s): Blender Foundation
- *
- * ***** END GPL LICENSE BLOCK *****
  */
 
-/** \file ED_logic.h
- *  \ingroup editors
+/** \file
+ * \ingroup editors
  */
 
 #ifndef __ED_LOGIC_H__
 #define __ED_LOGIC_H__
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /* logic_ops.c */
 void ED_operatortypes_logic(void);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* __ED_LOGIC_H__ */

@@ -1,6 +1,4 @@
 /*
- * ***** BEGIN GPL LICENSE BLOCK *****
- *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
  * as published by the Free Software Foundation; either version 2
@@ -14,16 +12,13 @@
  * You should have received a copy of the GNU General Public License
  * along with this program; if not, write to the Free Software Foundation,
  * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * Contributor(s): Jörg Müller.
- *
- * ***** END GPL LICENSE BLOCK *****
  */
 
-/** \file blender/blenkernel/intern/speaker.c
- *  \ingroup bke
+/** \file
+ * \ingroup bke
  */
 
+#include "DNA_defaults.h"
 #include "DNA_object_types.h"
 #include "DNA_sound_types.h"
 #include "DNA_speaker_types.h"
@@ -31,63 +26,52 @@
 #include "BLI_math.h"
 #include "BLI_utildefines.h"
 
-#include "BKE_animsys.h"
-#include "BKE_global.h"
-#include "BKE_library.h"
-#include "BKE_library_query.h"
-#include "BKE_library_remap.h"
+#include "BLT_translation.h"
+
+#include "BKE_idtype.h"
+#include "BKE_lib_id.h"
 #include "BKE_main.h"
 #include "BKE_speaker.h"
 
-void BKE_speaker_init(Speaker *spk)
+static void speaker_init_data(ID *id)
 {
-	BLI_assert(MEMCMP_STRUCT_OFS_IS_ZERO(spk, id));
+  Speaker *speaker = (Speaker *)id;
 
-	spk->attenuation = 1.0f;
-	spk->cone_angle_inner = 360.0f;
-	spk->cone_angle_outer = 360.0f;
-	spk->cone_volume_outer = 1.0f;
-	spk->distance_max = FLT_MAX;
-	spk->distance_reference = 1.0f;
-	spk->flag = 0;
-	spk->pitch = 1.0f;
-	spk->sound = NULL;
-	spk->volume = 1.0f;
-	spk->volume_max = 1.0f;
-	spk->volume_min = 0.0f;
+  BLI_assert(MEMCMP_STRUCT_AFTER_IS_ZERO(speaker, id));
+
+  MEMCPY_STRUCT_AFTER(speaker, DNA_struct_default_get(Speaker), id);
 }
+
+IDTypeInfo IDType_ID_SPK = {
+    .id_code = ID_SPK,
+    .id_filter = FILTER_ID_SPK,
+    .main_listbase_index = INDEX_ID_SPK,
+    .struct_size = sizeof(Speaker),
+    .name = "Speaker",
+    .name_plural = "speakers",
+    .translation_context = BLT_I18NCONTEXT_ID_SPEAKER,
+    .flags = 0,
+
+    .init_data = speaker_init_data,
+    .copy_data = NULL,
+    .free_data = NULL,
+    .make_local = NULL,
+};
 
 void *BKE_speaker_add(Main *bmain, const char *name)
 {
-	Speaker *spk;
+  Speaker *spk;
 
-	spk =  BKE_libblock_alloc(bmain, ID_SPK, name);
+  spk = BKE_libblock_alloc(bmain, ID_SPK, name, 0);
 
-	BKE_speaker_init(spk);
+  speaker_init_data(&spk->id);
 
-	return spk;
+  return spk;
 }
 
 Speaker *BKE_speaker_copy(Main *bmain, const Speaker *spk)
 {
-	Speaker *spkn;
-
-	spkn = BKE_libblock_copy(bmain, &spk->id);
-
-	if (spkn->sound)
-		id_us_plus(&spkn->sound->id);
-
-	BKE_id_copy_ensure_local(bmain, &spk->id, &spkn->id);
-
-	return spkn;
-}
-
-void BKE_speaker_make_local(Main *bmain, Speaker *spk, const bool lib_local)
-{
-	BKE_id_make_local_generic(bmain, &spk->id, true, lib_local);
-}
-
-void BKE_speaker_free(Speaker *spk)
-{
-	BKE_animdata_free((ID *)spk, false);
+  Speaker *spk_copy;
+  BKE_id_copy(bmain, &spk->id, (ID **)&spk_copy);
+  return spk_copy;
 }

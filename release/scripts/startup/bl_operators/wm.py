@@ -19,53 +19,78 @@
 # <pep8 compliant>
 
 import bpy
-from bpy.types import Operator
+from bpy.types import (
+    Menu,
+    Operator,
+)
 from bpy.props import (
-    StringProperty,
     BoolProperty,
-    IntProperty,
-    FloatProperty,
+    CollectionProperty,
     EnumProperty,
+    FloatProperty,
+    IntProperty,
+    StringProperty,
 )
 
-from bpy.app.translations import pgettext_tip as tip_
+# FIXME, we need a way to detect key repeat events.
+# unfortunately checking event previous values isn't reliable.
+use_toolbar_release_hack = True
 
 
 rna_path_prop = StringProperty(
-        name="Context Attributes",
-        description="RNA context string",
-        maxlen=1024,
-        )
+    name="Context Attributes",
+    description="RNA context string",
+    maxlen=1024,
+)
 
 rna_reverse_prop = BoolProperty(
-        name="Reverse",
-        description="Cycle backwards",
-        default=False,
-        )
+    name="Reverse",
+    description="Cycle backwards",
+    default=False,
+)
 
 rna_wrap_prop = BoolProperty(
-        name="Wrap",
-        description="Wrap back to the first/last values",
-        default=False,
-        )
+    name="Wrap",
+    description="Wrap back to the first/last values",
+    default=False,
+)
 
 rna_relative_prop = BoolProperty(
-        name="Relative",
-        description="Apply relative to the current value (delta)",
-        default=False,
-        )
+    name="Relative",
+    description="Apply relative to the current value (delta)",
+    default=False,
+)
+
+rna_space_type_prop = EnumProperty(
+    name="Type",
+    items=tuple(
+        (e.identifier, e.name, "", e. value)
+        for e in bpy.types.Space.bl_rna.properties["type"].enum_items
+    ),
+    default='EMPTY',
+)
+
+# Note, this can be used for more operators,
+# currently not used for all "WM_OT_context_" operators.
+rna_module_prop = StringProperty(
+    name="Module",
+    description="Optionally override the context with a module",
+    maxlen=1024,
+)
 
 
 def context_path_validate(context, data_path):
     try:
         value = eval("context.%s" % data_path) if data_path else Ellipsis
-    except AttributeError as e:
-        if str(e).startswith("'NoneType'"):
+    except AttributeError as ex:
+        if str(ex).startswith("'NoneType'"):
             # One of the items in the rna path is None, just ignore this
             value = Ellipsis
         else:
-            # We have a real error in the rna path, don't ignore that
-            raise
+            # Print invalid path, but don't show error to the users and fully
+            # break the UI if the operator is bound to an event like left click.
+            print("context_path_validate error: context.%s not found (invalid keymap entry?)" % data_path)
+            value = Ellipsis
 
     return value
 
@@ -98,7 +123,7 @@ def operator_path_is_undo(context, data_path):
     # note that if we have data paths that use strings this could fail
     # luckily we don't do this!
     #
-    # When we cant find the data owner assume no undo is needed.
+    # When we can't find the data owner assume no undo is needed.
     data_path_head = data_path.rpartition(".")[0]
 
     if not data_path_head:
@@ -130,67 +155,18 @@ def execute_context_assign(self, context):
     return operator_path_undo_return(context, data_path)
 
 
-def module_filesystem_remove(path_base, module_name):
-    import os
-    module_name = os.path.splitext(module_name)[0]
-    for f in os.listdir(path_base):
-        f_base = os.path.splitext(f)[0]
-        if f_base == module_name:
-            f_full = os.path.join(path_base, f)
-
-            if os.path.isdir(f_full):
-                os.rmdir(f_full)
-            else:
-                os.remove(f_full)
-
-
-class BRUSH_OT_active_index_set(Operator):
-    """Set active sculpt/paint brush from it's number"""
-    bl_idname = "brush.active_index_set"
-    bl_label = "Set Brush Number"
-
-    mode = StringProperty(
-            name="Mode",
-            description="Paint mode to set brush for",
-            maxlen=1024,
-            )
-    index = IntProperty(
-            name="Number",
-            description="Brush number",
-            )
-
-    _attr_dict = {"sculpt": "use_paint_sculpt",
-                  "vertex_paint": "use_paint_vertex",
-                  "weight_paint": "use_paint_weight",
-                  "image_paint": "use_paint_image",
-                  }
-
-    def execute(self, context):
-        attr = self._attr_dict.get(self.mode)
-        if attr is None:
-            return {'CANCELLED'}
-
-        toolsettings = context.tool_settings
-        for i, brush in enumerate((cur for cur in bpy.data.brushes if getattr(cur, attr))):
-            if i == self.index:
-                getattr(toolsettings, self.mode).brush = brush
-                return {'FINISHED'}
-
-        return {'CANCELLED'}
-
-
 class WM_OT_context_set_boolean(Operator):
     """Set a context value"""
     bl_idname = "wm.context_set_boolean"
     bl_label = "Context Set Boolean"
     bl_options = {'UNDO', 'INTERNAL'}
 
-    data_path = rna_path_prop
-    value = BoolProperty(
-            name="Value",
-            description="Assignment value",
-            default=True,
-            )
+    data_path: rna_path_prop
+    value: BoolProperty(
+        name="Value",
+        description="Assignment value",
+        default=True,
+    )
 
     execute = execute_context_assign
 
@@ -201,13 +177,13 @@ class WM_OT_context_set_int(Operator):  # same as enum
     bl_label = "Context Set"
     bl_options = {'UNDO', 'INTERNAL'}
 
-    data_path = rna_path_prop
-    value = IntProperty(
-            name="Value",
-            description="Assign value",
-            default=0,
-            )
-    relative = rna_relative_prop
+    data_path: rna_path_prop
+    value: IntProperty(
+        name="Value",
+        description="Assign value",
+        default=0,
+    )
+    relative: rna_relative_prop
 
     execute = execute_context_assign
 
@@ -218,12 +194,12 @@ class WM_OT_context_scale_float(Operator):
     bl_label = "Context Scale Float"
     bl_options = {'UNDO', 'INTERNAL'}
 
-    data_path = rna_path_prop
-    value = FloatProperty(
-            name="Value",
-            description="Assign value",
-            default=1.0,
-            )
+    data_path: rna_path_prop
+    value: FloatProperty(
+        name="Value",
+        description="Assign value",
+        default=1.0,
+    )
 
     def execute(self, context):
         data_path = self.data_path
@@ -246,17 +222,17 @@ class WM_OT_context_scale_int(Operator):
     bl_label = "Context Scale Int"
     bl_options = {'UNDO', 'INTERNAL'}
 
-    data_path = rna_path_prop
-    value = FloatProperty(
-            name="Value",
-            description="Assign value",
-            default=1.0,
-            )
-    always_step = BoolProperty(
-            name="Always Step",
-            description="Always adjust the value by a minimum of 1 when 'value' is not 1.0",
-            default=True,
-            )
+    data_path: rna_path_prop
+    value: FloatProperty(
+        name="Value",
+        description="Assign value",
+        default=1.0,
+    )
+    always_step: BoolProperty(
+        name="Always Step",
+        description="Always adjust the value by a minimum of 1 when 'value' is not 1.0",
+        default=True,
+    )
 
     def execute(self, context):
         data_path = self.data_path
@@ -289,13 +265,13 @@ class WM_OT_context_set_float(Operator):  # same as enum
     bl_label = "Context Set Float"
     bl_options = {'UNDO', 'INTERNAL'}
 
-    data_path = rna_path_prop
-    value = FloatProperty(
-            name="Value",
-            description="Assignment value",
-            default=0.0,
-            )
-    relative = rna_relative_prop
+    data_path: rna_path_prop
+    value: FloatProperty(
+        name="Value",
+        description="Assignment value",
+        default=0.0,
+    )
+    relative: rna_relative_prop
 
     execute = execute_context_assign
 
@@ -306,12 +282,12 @@ class WM_OT_context_set_string(Operator):  # same as enum
     bl_label = "Context Set String"
     bl_options = {'UNDO', 'INTERNAL'}
 
-    data_path = rna_path_prop
-    value = StringProperty(
-            name="Value",
-            description="Assign value",
-            maxlen=1024,
-            )
+    data_path: rna_path_prop
+    value: StringProperty(
+        name="Value",
+        description="Assign value",
+        maxlen=1024,
+    )
 
     execute = execute_context_assign
 
@@ -322,12 +298,12 @@ class WM_OT_context_set_enum(Operator):
     bl_label = "Context Set Enum"
     bl_options = {'UNDO', 'INTERNAL'}
 
-    data_path = rna_path_prop
-    value = StringProperty(
-            name="Value",
-            description="Assignment value (as a string)",
-            maxlen=1024,
-            )
+    data_path: rna_path_prop
+    value: StringProperty(
+        name="Value",
+        description="Assignment value (as a string)",
+        maxlen=1024,
+    )
 
     execute = execute_context_assign
 
@@ -338,12 +314,12 @@ class WM_OT_context_set_value(Operator):
     bl_label = "Context Set Value"
     bl_options = {'UNDO', 'INTERNAL'}
 
-    data_path = rna_path_prop
-    value = StringProperty(
-            name="Value",
-            description="Assignment value (as a string)",
-            maxlen=1024,
-            )
+    data_path: rna_path_prop
+    value: StringProperty(
+        name="Value",
+        description="Assignment value (as a string)",
+        maxlen=1024,
+    )
 
     def execute(self, context):
         data_path = self.data_path
@@ -359,17 +335,25 @@ class WM_OT_context_toggle(Operator):
     bl_label = "Context Toggle"
     bl_options = {'UNDO', 'INTERNAL'}
 
-    data_path = rna_path_prop
+    data_path: rna_path_prop
+    module: rna_module_prop
 
     def execute(self, context):
         data_path = self.data_path
 
-        if context_path_validate(context, data_path) is Ellipsis:
+        module = self.module
+        if not module:
+            base = context
+        else:
+            from importlib import import_module
+            base = import_module(self.module)
+
+        if context_path_validate(base, data_path) is Ellipsis:
             return {'PASS_THROUGH'}
 
-        exec("context.%s = not (context.%s)" % (data_path, data_path))
+        exec("base.%s = not (base.%s)" % (data_path, data_path))
 
-        return operator_path_undo_return(context, data_path)
+        return operator_path_undo_return(base, data_path)
 
 
 class WM_OT_context_toggle_enum(Operator):
@@ -378,17 +362,17 @@ class WM_OT_context_toggle_enum(Operator):
     bl_label = "Context Toggle Values"
     bl_options = {'UNDO', 'INTERNAL'}
 
-    data_path = rna_path_prop
-    value_1 = StringProperty(
-            name="Value",
-            description="Toggle enum",
-            maxlen=1024,
-            )
-    value_2 = StringProperty(
-            name="Value",
-            description="Toggle enum",
-            maxlen=1024,
-            )
+    data_path: rna_path_prop
+    value_1: StringProperty(
+        name="Value",
+        description="Toggle enum",
+        maxlen=1024,
+    )
+    value_2: StringProperty(
+        name="Value",
+        description="Toggle enum",
+        maxlen=1024,
+    )
 
     def execute(self, context):
         data_path = self.data_path
@@ -412,14 +396,14 @@ class WM_OT_context_toggle_enum(Operator):
 
 class WM_OT_context_cycle_int(Operator):
     """Set a context value (useful for cycling active material, """ \
-    """vertex keys, groups, etc.)"""
+        """vertex keys, groups, etc.)"""
     bl_idname = "wm.context_cycle_int"
     bl_label = "Context Int Cycle"
     bl_options = {'UNDO', 'INTERNAL'}
 
-    data_path = rna_path_prop
-    reverse = rna_reverse_prop
-    wrap = rna_wrap_prop
+    data_path: rna_path_prop
+    reverse: rna_reverse_prop
+    wrap: rna_wrap_prop
 
     def execute(self, context):
         data_path = self.data_path
@@ -453,9 +437,9 @@ class WM_OT_context_cycle_enum(Operator):
     bl_label = "Context Enum Cycle"
     bl_options = {'UNDO', 'INTERNAL'}
 
-    data_path = rna_path_prop
-    reverse = rna_reverse_prop
-    wrap = rna_wrap_prop
+    data_path: rna_path_prop
+    reverse: rna_reverse_prop
+    wrap: rna_wrap_prop
 
     def execute(self, context):
         data_path = self.data_path
@@ -505,13 +489,13 @@ class WM_OT_context_cycle_enum(Operator):
 
 class WM_OT_context_cycle_array(Operator):
     """Set a context array value """ \
-    """(useful for cycling the active mesh edit mode)"""
+        """(useful for cycling the active mesh edit mode)"""
     bl_idname = "wm.context_cycle_array"
     bl_label = "Context Array Cycle"
     bl_options = {'UNDO', 'INTERNAL'}
 
-    data_path = rna_path_prop
-    reverse = rna_reverse_prop
+    data_path: rna_path_prop
+    reverse: rna_reverse_prop
 
     def execute(self, context):
         data_path = self.data_path
@@ -535,7 +519,8 @@ class WM_OT_context_menu_enum(Operator):
     bl_idname = "wm.context_menu_enum"
     bl_label = "Context Enum Menu"
     bl_options = {'UNDO', 'INTERNAL'}
-    data_path = rna_path_prop
+
+    data_path: rna_path_prop
 
     def execute(self, context):
         data_path = self.data_path
@@ -561,7 +546,8 @@ class WM_OT_context_pie_enum(Operator):
     bl_idname = "wm.context_pie_enum"
     bl_label = "Context Enum Pie"
     bl_options = {'UNDO', 'INTERNAL'}
-    data_path = rna_path_prop
+
+    data_path: rna_path_prop
 
     def invoke(self, context, event):
         wm = context.window_manager
@@ -588,16 +574,17 @@ class WM_OT_operator_pie_enum(Operator):
     bl_idname = "wm.operator_pie_enum"
     bl_label = "Operator Enum Pie"
     bl_options = {'UNDO', 'INTERNAL'}
-    data_path = StringProperty(
-            name="Operator",
-            description="Operator name (in python as string)",
-            maxlen=1024,
-            )
-    prop_string = StringProperty(
-            name="Property",
-            description="Property name (as a string)",
-            maxlen=1024,
-            )
+
+    data_path: StringProperty(
+        name="Operator",
+        description="Operator name (in python as string)",
+        maxlen=1024,
+    )
+    prop_string: StringProperty(
+        name="Property",
+        description="Property name (as a string)",
+        maxlen=1024,
+    )
 
     def invoke(self, context, event):
         wm = context.window_manager
@@ -611,7 +598,7 @@ class WM_OT_operator_pie_enum(Operator):
         del op_mod_str, ob_id_str
 
         try:
-            op_rna = op.get_rna()
+            op_rna = op.get_rna_type()
         except KeyError:
             self.report({'ERROR'}, "Operator not found: bpy.ops.%s" % data_path)
             return {'CANCELLED'}
@@ -621,7 +608,7 @@ class WM_OT_operator_pie_enum(Operator):
             pie = layout.menu_pie()
             pie.operator_enum(data_path, prop_string)
 
-        wm.popup_menu_pie(draw_func=draw_cb, title=op_rna.bl_rna.name, event=event)
+        wm.popup_menu_pie(draw_func=draw_cb, title=op_rna.name, event=event)
 
         return {'FINISHED'}
 
@@ -632,12 +619,12 @@ class WM_OT_context_set_id(Operator):
     bl_label = "Set Library ID"
     bl_options = {'UNDO', 'INTERNAL'}
 
-    data_path = rna_path_prop
-    value = StringProperty(
-            name="Value",
-            description="Assign value",
-            maxlen=1024,
-            )
+    data_path: rna_path_prop
+    value: StringProperty(
+        name="Value",
+        description="Assign value",
+        maxlen=1024,
+    )
 
     def execute(self, context):
         value = self.value
@@ -665,16 +652,16 @@ class WM_OT_context_set_id(Operator):
 
 
 doc_id = StringProperty(
-        name="Doc ID",
-        maxlen=1024,
-        options={'HIDDEN'},
-        )
+    name="Doc ID",
+    maxlen=1024,
+    options={'HIDDEN'},
+)
 
 data_path_iter = StringProperty(
-        description="The data path relative to the context, must point to an iterable")
+    description="The data path relative to the context, must point to an iterable")
 
 data_path_item = StringProperty(
-        description="The data path from each iterable to the value (int or float)")
+    description="The data path from each iterable to the value (int or float)")
 
 
 class WM_OT_context_collection_boolean_set(Operator):
@@ -683,16 +670,17 @@ class WM_OT_context_collection_boolean_set(Operator):
     bl_label = "Context Collection Boolean Set"
     bl_options = {'UNDO', 'REGISTER', 'INTERNAL'}
 
-    data_path_iter = data_path_iter
-    data_path_item = data_path_item
+    data_path_iter: data_path_iter
+    data_path_item: data_path_item
 
-    type = EnumProperty(
-            name="Type",
-            items=(('TOGGLE', "Toggle", ""),
-                   ('ENABLE', "Enable", ""),
-                   ('DISABLE', "Disable", ""),
-                   ),
-            )
+    type: EnumProperty(
+        name="Type",
+        items=(
+            ('TOGGLE', "Toggle", ""),
+            ('ENABLE', "Enable", ""),
+            ('DISABLE', "Disable", ""),
+        ),
+    )
 
     def execute(self, context):
         data_path_iter = self.data_path_iter
@@ -742,22 +730,22 @@ class WM_OT_context_modal_mouse(Operator):
     bl_label = "Context Modal Mouse"
     bl_options = {'GRAB_CURSOR', 'BLOCKING', 'UNDO', 'INTERNAL'}
 
-    data_path_iter = data_path_iter
-    data_path_item = data_path_item
-    header_text = StringProperty(
-            name="Header Text",
-            description="Text to display in header during scale",
-            )
+    data_path_iter: data_path_iter
+    data_path_item: data_path_item
+    header_text: StringProperty(
+        name="Header Text",
+        description="Text to display in header during scale",
+    )
 
-    input_scale = FloatProperty(
-            description="Scale the mouse movement by this value before applying the delta",
-            default=0.01,
-            )
-    invert = BoolProperty(
-            description="Invert the mouse input",
-            default=False,
-            )
-    initial_x = IntProperty(options={'HIDDEN'})
+    input_scale: FloatProperty(
+        description="Scale the mouse movement by this value before applying the delta",
+        default=0.01,
+    )
+    invert: BoolProperty(
+        description="Invert the mouse input",
+        default=False,
+    )
+    initial_x: IntProperty(options={'HIDDEN'})
 
     def _values_store(self, context):
         data_path_iter = self.data_path_iter
@@ -819,12 +807,12 @@ class WM_OT_context_modal_mouse(Operator):
         elif 'LEFTMOUSE' == event_type:
             item = next(iter(self._values.keys()))
             self._values_clear()
-            context.area.header_text_set()
+            context.area.header_text_set(None)
             return operator_value_undo_return(item)
 
         elif event_type in {'RIGHTMOUSE', 'ESC'}:
             self._values_restore()
-            context.area.header_text_set()
+            context.area.header_text_set(None)
             return {'CANCELLED'}
 
         return {'RUNNING_MODAL'}
@@ -850,14 +838,94 @@ class WM_OT_url_open(Operator):
     bl_label = ""
     bl_options = {'INTERNAL'}
 
-    url = StringProperty(
-            name="URL",
-            description="URL to open",
-            )
+    url: StringProperty(
+        name="URL",
+        description="URL to open",
+    )
 
-    def execute(self, context):
+    def execute(self, _context):
         import webbrowser
         webbrowser.open(self.url)
+        return {'FINISHED'}
+
+
+class WM_OT_url_open_preset(Operator):
+    """Open a preset website in the web-browser"""
+    bl_idname = "wm.url_open_preset"
+    bl_label = "Open Preset Website"
+    bl_options = {'INTERNAL'}
+
+    type: EnumProperty(
+        name="Site",
+        items=lambda self, _context: (
+            item for (item, _) in WM_OT_url_open_preset.preset_items
+        ),
+    )
+
+    id: StringProperty(
+        name="Identifier",
+        description="Optional identifier",
+    )
+
+    def _url_from_bug(self, _context):
+        from bl_ui_utils.bug_report_url import url_prefill_from_blender
+        return url_prefill_from_blender()
+
+    def _url_from_bug_addon(self, _context):
+        from bl_ui_utils.bug_report_url import url_prefill_from_blender
+        return url_prefill_from_blender(addon_info=self.id)
+
+    def _url_from_release_notes(self, _context):
+        return "https://www.blender.org/download/releases/%d-%d/" % bpy.app.version[:2]
+
+    def _url_from_manual(self, _context):
+        if bpy.app.version_cycle in {"rc", "release"}:
+            manual_version = "%d.%d" % bpy.app.version[:2]
+        else:
+            manual_version = "dev"
+        return "https://docs.blender.org/manual/en/" + manual_version + "/"
+
+    # This list is: (enum_item, url) pairs.
+    # Allow dynamically extending.
+    preset_items = [
+        # Dynamic URL's.
+        (('BUG', "Bug",
+          "Report a bug with pre-filled version information"),
+         _url_from_bug),
+        (('BUG_ADDON', "Add-On Bug",
+          "Report a bug in an add-on"),
+         _url_from_bug_addon),
+        (('RELEASE_NOTES', "Release Notes",
+          "Read about whats new in this version of Blender"),
+         _url_from_release_notes),
+        (('MANUAL', "Manual",
+          "The reference manual for this version of Blender"),
+         _url_from_manual),
+
+        # Static URL's.
+        (('FUND', "Development Fund",
+          "The donation program to support maintenance and improvements"),
+         "https://fund.blender.org"),
+        (('BLENDER', "blender.org",
+          "Blender's official web-site"),
+         "https://www.blender.org"),
+        (('CREDITS', "Credits",
+          "Lists committers to Blender's source code"),
+         "https://www.blender.org/about/credits/"),
+    ]
+
+    def execute(self, context):
+        url = None
+        type = self.type
+        for (item_id, _, _), url in self.preset_items:
+            if item_id == type:
+                if callable(url):
+                    url = url(self, context)
+                break
+
+        import webbrowser
+        webbrowser.open(url)
+
         return {'FINISHED'}
 
 
@@ -867,12 +935,12 @@ class WM_OT_path_open(Operator):
     bl_label = ""
     bl_options = {'INTERNAL'}
 
-    filepath = StringProperty(
-            subtype='FILE_PATH',
-            options={'SKIP_SAVE'},
-            )
+    filepath: StringProperty(
+        subtype='FILE_PATH',
+        options={'SKIP_SAVE'},
+    )
 
-    def execute(self, context):
+    def execute(self, _context):
         import sys
         import os
         import subprocess
@@ -906,6 +974,15 @@ class WM_OT_path_open(Operator):
 
 
 def _wm_doc_get_id(doc_id, do_url=True, url_prefix=""):
+
+    def operator_exists_pair(a, b):
+        # Not fast, this is only for docs.
+        return b in dir(getattr(bpy.ops, a))
+
+    def operator_exists_single(a):
+        a, b = a.partition("_OT_")[::2]
+        return operator_exists_pair(a.lower(), b)
+
     id_split = doc_id.split(".")
     url = rna = None
 
@@ -919,7 +996,18 @@ def _wm_doc_get_id(doc_id, do_url=True, url_prefix=""):
         class_name, class_prop = id_split
 
         # an operator (common case - just button referencing an op)
-        if hasattr(bpy.types, class_name.upper() + "_OT_" + class_prop):
+        if operator_exists_pair(class_name, class_prop):
+            if do_url:
+                url = (
+                    "%s/bpy.ops.%s.html#bpy.ops.%s.%s" %
+                    (url_prefix, class_name, class_name, class_prop)
+                )
+            else:
+                rna = "bpy.ops.%s.%s" % (class_name, class_prop)
+        elif operator_exists_single(class_name):
+            # note: ignore the prop name since we don't have a way to link into it
+            class_name, class_prop = class_name.split("_OT_", 1)
+            class_name = class_name.lower()
             if do_url:
                 url = (
                     "%s/bpy.ops.%s.html#bpy.ops.%s.%s" %
@@ -928,48 +1016,31 @@ def _wm_doc_get_id(doc_id, do_url=True, url_prefix=""):
             else:
                 rna = "bpy.ops.%s.%s" % (class_name, class_prop)
         else:
+            # an RNA setting, common case
             rna_class = getattr(bpy.types, class_name)
 
-            # an operator setting (selected from a running operator), rare case
-            # note: Py defined operators are subclass of Operator,
-            #       C defined operators are subclass of OperatorProperties.
-            #       we may need to check on this at some point.
-            if issubclass(rna_class, (bpy.types.Operator, bpy.types.OperatorProperties)):
-                # note: ignore the prop name since we don't have a way to link into it
-                class_name, class_prop = class_name.split("_OT_", 1)
-                class_name = class_name.lower()
+            # detect if this is a inherited member and use that name instead
+            rna_parent = rna_class.bl_rna
+            rna_prop = rna_parent.properties.get(class_prop)
+            if rna_prop:
+                rna_parent = rna_parent.base
+                while rna_parent and rna_prop == rna_parent.properties.get(class_prop):
+                    class_name = rna_parent.identifier
+                    rna_parent = rna_parent.base
+
                 if do_url:
                     url = (
-                        "%s/bpy.ops.%s.html#bpy.ops.%s.%s" %
+                        "%s/bpy.types.%s.html#bpy.types.%s.%s" %
                         (url_prefix, class_name, class_name, class_prop)
                     )
                 else:
-                    rna = "bpy.ops.%s.%s" % (class_name, class_prop)
+                    rna = "bpy.types.%s.%s" % (class_name, class_prop)
             else:
-                # an RNA setting, common case
-
-                # detect if this is a inherited member and use that name instead
-                rna_parent = rna_class.bl_rna
-                rna_prop = rna_parent.properties.get(class_prop)
-                if rna_prop:
-                    rna_parent = rna_parent.base
-                    while rna_parent and rna_prop == rna_parent.properties.get(class_prop):
-                        class_name = rna_parent.identifier
-                        rna_parent = rna_parent.base
-
-                    if do_url:
-                        url = (
-                            "%s/bpy.types.%s.html#bpy.types.%s.%s" %
-                            (url_prefix, class_name, class_name, class_prop)
-                        )
-                    else:
-                        rna = "bpy.types.%s.%s" % (class_name, class_prop)
+                # We assume this is custom property, only try to generate generic url/rna_id...
+                if do_url:
+                    url = ("%s/bpy.types.bpy_struct.html#bpy.types.bpy_struct.items" % (url_prefix,))
                 else:
-                    # We assume this is custom property, only try to generate generic url/rna_id...
-                    if do_url:
-                        url = ("%s/bpy.types.bpy_struct.html#bpy.types.bpy_struct.items" % (url_prefix,))
-                    else:
-                        rna = "bpy.types.bpy_struct"
+                    rna = "bpy.types.bpy_struct"
 
     return url if do_url else rna
 
@@ -979,7 +1050,7 @@ class WM_OT_doc_view_manual(Operator):
     bl_idname = "wm.doc_view_manual"
     bl_label = "View Manual"
 
-    doc_id = doc_id
+    doc_id: doc_id
 
     @staticmethod
     def _find_reference(rna_id, url_mapping, verbose=True):
@@ -1006,7 +1077,7 @@ class WM_OT_doc_view_manual(Operator):
                 url = prefix + rna_ref
                 return url
 
-    def execute(self, context):
+    def execute(self, _context):
         rna_id = _wm_doc_get_id(self.doc_id, do_url=False)
         if rna_id is None:
             return {'PASS_THROUGH'}
@@ -1015,11 +1086,12 @@ class WM_OT_doc_view_manual(Operator):
 
         if url is None:
             self.report(
-                    {'WARNING'},
-                    "No reference available %r, "
-                    "Update info in 'rna_manual_reference.py' "
-                    "or callback to bpy.utils.manual_map()" %
-                    self.doc_id)
+                {'WARNING'},
+                "No reference available %r, "
+                "Update info in 'rna_manual_reference.py' "
+                "or callback to bpy.utils.manual_map()" %
+                self.doc_id
+            )
             return {'CANCELLED'}
         else:
             import webbrowser
@@ -1028,17 +1100,18 @@ class WM_OT_doc_view_manual(Operator):
 
 
 class WM_OT_doc_view(Operator):
-    """Load online reference docs"""
+    """Open online reference docs in a web browser"""
     bl_idname = "wm.doc_view"
     bl_label = "View Documentation"
 
-    doc_id = doc_id
-    if bpy.app.version_cycle == "release":
-        _prefix = ("https://docs.blender.org/api/blender_python_api_current")
+    doc_id: doc_id
+    if bpy.app.version_cycle in {"release", "rc", "beta"}:
+        _prefix = ("https://docs.blender.org/api/%d.%d" %
+                   (bpy.app.version[0], bpy.app.version[1]))
     else:
-        _prefix = ("https://docs.blender.org/api/blender_python_api_master")
+        _prefix = ("https://docs.blender.org/api/master")
 
-    def execute(self, context):
+    def execute(self, _context):
         url = _wm_doc_get_id(self.doc_id, do_url=True, url_prefix=self._prefix)
         if url is None:
             return {'PASS_THROUGH'}
@@ -1050,58 +1123,102 @@ class WM_OT_doc_view(Operator):
 
 
 rna_path = StringProperty(
-        name="Property Edit",
-        description="Property data_path edit",
-        maxlen=1024,
-        options={'HIDDEN'},
-        )
+    name="Property Edit",
+    description="Property data_path edit",
+    maxlen=1024,
+    options={'HIDDEN'},
+)
 
 rna_value = StringProperty(
-        name="Property Value",
-        description="Property value edit",
-        maxlen=1024,
-        )
+    name="Property Value",
+    description="Property value edit",
+    maxlen=1024,
+)
+
+rna_default = StringProperty(
+    name="Default Value",
+    description="Default value of the property. Important for NLA mixing",
+    maxlen=1024,
+)
 
 rna_property = StringProperty(
-        name="Property Name",
-        description="Property name edit",
-        maxlen=1024,
-        )
+    name="Property Name",
+    description="Property name edit",
+    maxlen=1024,
+)
 
 rna_min = FloatProperty(
-        name="Min",
-        default=-10000.0,
-        precision=3,
-        )
+    name="Min",
+    description="Minimum value of the property",
+    default=-10000.0,
+    precision=3,
+)
 
 rna_max = FloatProperty(
-        name="Max",
-        default=10000.0,
-        precision=3,
-        )
+    name="Max",
+    description="Maximum value of the property",
+    default=10000.0,
+    precision=3,
+)
 
 rna_use_soft_limits = BoolProperty(
-        name="Use Soft Limits",
-        )
+    name="Use Soft Limits",
+    description="Limits the Property Value slider to a range, values outside the range must be inputted numerically",
+)
+
+rna_is_overridable_library = BoolProperty(
+    name="Is Library Overridable",
+    description="Allow the property to be overridden when the Data-Block is linked",
+    default=False,
+)
+
+# Most useful entries of rna_enum_property_subtype_items for number arrays:
+rna_vector_subtype_items = (
+    ('NONE', "Plain Data", "Data values without special behavior"),
+    ('COLOR', "Linear Color", "Color in the linear space"),
+    ('COLOR_GAMMA', "Gamma-Corrected Color", "Color in the gamma corrected space"),
+    ('EULER', "Euler Angles", "Euler rotation angles in radians"),
+    ('QUATERNION', "Quaternion Rotation", "Quaternion rotation (affects NLA blending)"),
+)
 
 
 class WM_OT_properties_edit(Operator):
+    """Edit the attributes of the property"""
     bl_idname = "wm.properties_edit"
     bl_label = "Edit Property"
     # register only because invoke_props_popup requires.
     bl_options = {'REGISTER', 'INTERNAL'}
 
-    data_path = rna_path
-    property = rna_property
-    value = rna_value
-    min = rna_min
-    max = rna_max
-    use_soft_limits = rna_use_soft_limits
-    soft_min = rna_min
-    soft_max = rna_max
-    description = StringProperty(
-            name="Tooltip",
-            )
+    data_path: rna_path
+    property: rna_property
+    value: rna_value
+    default: rna_default
+    min: rna_min
+    max: rna_max
+    use_soft_limits: rna_use_soft_limits
+    is_overridable_library: rna_is_overridable_library
+    soft_min: rna_min
+    soft_max: rna_max
+    description: StringProperty(
+        name="Tooltip",
+    )
+    subtype: EnumProperty(
+        name="Subtype",
+        items=lambda self, _context: WM_OT_properties_edit.subtype_items,
+    )
+
+    subtype_items = rna_vector_subtype_items
+
+    def _init_subtype(self, prop_type, is_array, subtype):
+        subtype = subtype or 'NONE'
+        subtype_items = rna_vector_subtype_items
+
+        # Add a temporary enum entry to preserve unknown subtypes
+        if not any(subtype == item[0] for item in subtype_items):
+            subtype_items += ((subtype, subtype, ""),)
+
+        WM_OT_properties_edit.subtype_items = subtype_items
+        self.subtype = subtype
 
     def _cmp_props_get(self):
         # Changing these properties will refresh the UI
@@ -1109,17 +1226,38 @@ class WM_OT_properties_edit(Operator):
             "use_soft_limits": self.use_soft_limits,
             "soft_range": (self.soft_min, self.soft_max),
             "hard_range": (self.min, self.max),
-            }
+        }
+
+    def get_value_eval(self):
+        try:
+            value_eval = eval(self.value)
+            # assert else None -> None, not "None", see [#33431]
+            assert(type(value_eval) in {str, float, int, bool, tuple, list})
+        except:
+            value_eval = self.value
+
+        return value_eval
+
+    def get_default_eval(self):
+        try:
+            default_eval = eval(self.default)
+            # assert else None -> None, not "None", see [#33431]
+            assert(type(default_eval) in {str, float, int, bool, tuple, list})
+        except:
+            default_eval = self.default
+
+        return default_eval
 
     def execute(self, context):
         from rna_prop_ui import (
             rna_idprop_ui_prop_get,
             rna_idprop_ui_prop_clear,
             rna_idprop_ui_prop_update,
+            rna_idprop_ui_prop_default_set,
+            rna_idprop_value_item_type,
         )
 
         data_path = self.data_path
-        value = self.value
         prop = self.property
 
         prop_old = getattr(self, "_last_prop", [None])[0]
@@ -1128,12 +1266,8 @@ class WM_OT_properties_edit(Operator):
             self.report({'ERROR'}, "Direct execution not supported")
             return {'CANCELLED'}
 
-        try:
-            value_eval = eval(value)
-            # assert else None -> None, not "None", see [#33431]
-            assert(type(value_eval) in {str, float, int, bool, tuple, list})
-        except:
-            value_eval = value
+        value_eval = self.get_value_eval()
+        default_eval = self.get_default_eval()
 
         # First remove
         item = eval("context.%s" % data_path)
@@ -1149,11 +1283,16 @@ class WM_OT_properties_edit(Operator):
         # print(exec_str)
         exec(exec_str)
 
+        exec_str = "item.property_overridable_library_set('[\"%s\"]', %s)" % (prop, self.is_overridable_library)
+        exec(exec_str)
+
         rna_idprop_ui_prop_update(item, prop)
 
         self._last_prop[:] = [prop]
 
-        prop_type = type(item[prop])
+        prop_value = item[prop]
+        prop_type_new = type(prop_value)
+        prop_type, is_array = rna_idprop_value_item_type(prop_value)
 
         prop_ui = rna_idprop_ui_prop_get(item, prop)
 
@@ -1168,10 +1307,17 @@ class WM_OT_properties_edit(Operator):
                 prop_ui["soft_min"] = prop_type(self.min)
                 prop_ui["soft_max"] = prop_type(self.max)
 
+        if prop_type == float and is_array and self.subtype != 'NONE':
+            prop_ui["subtype"] = self.subtype
+        else:
+            prop_ui.pop("subtype", None)
+
         prop_ui["description"] = self.description
 
+        rna_idprop_ui_prop_default_set(item, prop, default_eval)
+
         # If we have changed the type of the property, update its potential anim curves!
-        if prop_type_old != prop_type:
+        if prop_type_old != prop_type_new:
             data_path = '["%s"]' % bpy.utils.escape_identifier(prop)
             done = set()
 
@@ -1207,8 +1353,12 @@ class WM_OT_properties_edit(Operator):
 
         return {'FINISHED'}
 
-    def invoke(self, context, event):
-        from rna_prop_ui import rna_idprop_ui_prop_get
+    def invoke(self, context, _event):
+        from rna_prop_ui import (
+            rna_idprop_ui_prop_get,
+            rna_idprop_value_to_python,
+            rna_idprop_value_item_type
+        )
 
         data_path = self.data_path
 
@@ -1220,6 +1370,17 @@ class WM_OT_properties_edit(Operator):
 
         item = eval("context.%s" % data_path)
 
+        # retrieve overridable static
+        exec_str = "item.is_property_overridable_library('[\"%s\"]')" % (self.property)
+        self.is_overridable_library = bool(eval(exec_str))
+
+        # default default value
+        prop_type, is_array = rna_idprop_value_item_type(self.get_value_eval())
+        if prop_type in {int, float}:
+            self.default = str(prop_type(0))
+        else:
+            self.default = ""
+
         # setup defaults
         prop_ui = rna_idprop_ui_prop_get(item, self.property, False)  # don't create
         if prop_ui:
@@ -1227,11 +1388,22 @@ class WM_OT_properties_edit(Operator):
             self.max = prop_ui.get("max", 1000000000)
             self.description = prop_ui.get("description", "")
 
+            defval = prop_ui.get("default", None)
+            if defval is not None:
+                self.default = str(rna_idprop_value_to_python(defval))
+
             self.soft_min = prop_ui.get("soft_min", self.min)
             self.soft_max = prop_ui.get("soft_max", self.max)
             self.use_soft_limits = (
-                    self.min != self.soft_min or
-                    self.max != self.soft_max)
+                self.min != self.soft_min or
+                self.max != self.soft_max
+            )
+
+            subtype = prop_ui.get("subtype", None)
+        else:
+            subtype = None
+
+        self._init_subtype(prop_type, is_array, subtype)
 
         # store for comparison
         self._cmp_props = self._cmp_props_get()
@@ -1239,7 +1411,7 @@ class WM_OT_properties_edit(Operator):
         wm = context.window_manager
         return wm.invoke_props_dialog(self)
 
-    def check(self, context):
+    def check(self, _context):
         cmp_props = self._cmp_props_get()
         changed = False
         if self._cmp_props != cmp_props:
@@ -1267,15 +1439,30 @@ class WM_OT_properties_edit(Operator):
 
         return changed
 
-    def draw(self, context):
+    def draw(self, _context):
+        from rna_prop_ui import (
+            rna_idprop_value_item_type,
+        )
+
         layout = self.layout
         layout.prop(self, "property")
         layout.prop(self, "value")
+
+        value = self.get_value_eval()
+        proptype, is_array = rna_idprop_value_item_type(value)
+
+        row = layout.row()
+        row.enabled = proptype in {int, float}
+        row.prop(self, "default")
+
         row = layout.row(align=True)
         row.prop(self, "min")
         row.prop(self, "max")
 
-        layout.prop(self, "use_soft_limits")
+        row = layout.row()
+        row.prop(self, "use_soft_limits")
+        if bpy.app.use_override_library:
+            row.prop(self, "is_overridable_library")
 
         row = layout.row(align=True)
         row.enabled = self.use_soft_limits
@@ -1283,18 +1470,21 @@ class WM_OT_properties_edit(Operator):
         row.prop(self, "soft_max", text="Soft Max")
         layout.prop(self, "description")
 
+        if is_array and proptype == float:
+            layout.prop(self, "subtype")
+
 
 class WM_OT_properties_add(Operator):
+    """Add your own property to the data-block"""
     bl_idname = "wm.properties_add"
     bl_label = "Add Property"
     bl_options = {'UNDO', 'INTERNAL'}
 
-    data_path = rna_path
+    data_path: rna_path
 
     def execute(self, context):
         from rna_prop_ui import (
-            rna_idprop_ui_prop_get,
-            rna_idprop_ui_prop_update,
+            rna_idprop_ui_create,
         )
 
         data_path = self.data_path
@@ -1315,13 +1505,7 @@ class WM_OT_properties_add(Operator):
             *type(item).bl_rna.properties.keys(),
         })
 
-        item[prop] = 1.0
-        rna_idprop_ui_prop_update(item, prop)
-
-        # not essential, but without this we get [#31661]
-        prop_ui = rna_idprop_ui_prop_get(item, prop)
-        prop_ui["soft_min"] = prop_ui["min"] = 0.0
-        prop_ui["soft_max"] = prop_ui["max"] = 1.0
+        rna_idprop_ui_create(item, prop, default=1.0)
 
         return {'FINISHED'}
 
@@ -1332,10 +1516,10 @@ class WM_OT_properties_context_change(Operator):
     bl_label = ""
     bl_options = {'INTERNAL'}
 
-    context = StringProperty(
-            name="Context",
-            maxlen=64,
-            )
+    context: StringProperty(
+        name="Context",
+        maxlen=64,
+    )
 
     def execute(self, context):
         context.space_data.context = self.context
@@ -1348,8 +1532,8 @@ class WM_OT_properties_remove(Operator):
     bl_label = "Remove Property"
     bl_options = {'UNDO', 'INTERNAL'}
 
-    data_path = rna_path
-    property = rna_property
+    data_path: rna_path
+    property: rna_property
 
     def execute(self, context):
         from rna_prop_ui import (
@@ -1366,415 +1550,32 @@ class WM_OT_properties_remove(Operator):
         return {'FINISHED'}
 
 
-class WM_OT_keyconfig_activate(Operator):
-    bl_idname = "wm.keyconfig_activate"
-    bl_label = "Activate Keyconfig"
-
-    filepath = StringProperty(
-            subtype='FILE_PATH',
-            )
-
-    def execute(self, context):
-        if bpy.utils.keyconfig_set(self.filepath, report=self.report):
-            return {'FINISHED'}
-        else:
-            return {'CANCELLED'}
-
-
-class WM_OT_appconfig_default(Operator):
-    bl_idname = "wm.appconfig_default"
-    bl_label = "Default Application Configuration"
-
-    def execute(self, context):
-        import os
-
-        context.window_manager.keyconfigs.active = context.window_manager.keyconfigs.default
-
-        filepath = os.path.join(bpy.utils.preset_paths("interaction")[0], "blender.py")
-
-        if os.path.exists(filepath):
-            bpy.ops.script.execute_preset(
-                filepath=filepath,
-                menu_idname="USERPREF_MT_interaction_presets",
-            )
-
-        return {'FINISHED'}
-
-
-class WM_OT_appconfig_activate(Operator):
-    bl_idname = "wm.appconfig_activate"
-    bl_label = "Activate Application Configuration"
-
-    filepath = StringProperty(
-            subtype='FILE_PATH',
-            )
-
-    def execute(self, context):
-        import os
-        bpy.utils.keyconfig_set(self.filepath)
-
-        filepath = self.filepath.replace("keyconfig", "interaction")
-
-        if os.path.exists(filepath):
-            bpy.ops.script.execute_preset(
-                filepath=filepath,
-                menu_idname="USERPREF_MT_interaction_presets",
-            )
-
-        return {'FINISHED'}
-
-
 class WM_OT_sysinfo(Operator):
     """Generate system information, saved into a text file"""
 
     bl_idname = "wm.sysinfo"
     bl_label = "Save System Info"
 
-    filepath = StringProperty(
-            subtype='FILE_PATH',
-            options={'SKIP_SAVE'},
-            )
+    filepath: StringProperty(
+        subtype='FILE_PATH',
+        options={'SKIP_SAVE'},
+    )
 
-    def execute(self, context):
+    def execute(self, _context):
         import sys_info
         sys_info.write_sysinfo(self.filepath)
         return {'FINISHED'}
 
-    def invoke(self, context, event):
+    def invoke(self, context, _event):
         import os
 
         if not self.filepath:
             self.filepath = os.path.join(
-                    os.path.expanduser("~"), "system-info.txt")
+                os.path.expanduser("~"), "system-info.txt")
 
         wm = context.window_manager
         wm.fileselect_add(self)
         return {'RUNNING_MODAL'}
-
-
-class WM_OT_copy_prev_settings(Operator):
-    """Copy settings from previous version"""
-    bl_idname = "wm.copy_prev_settings"
-    bl_label = "Copy Previous Settings"
-
-    def execute(self, context):
-        import os
-        import shutil
-        ver = bpy.app.version
-        ver_old = ((ver[0] * 100) + ver[1]) - 1
-        path_src = bpy.utils.resource_path('USER', ver_old // 100, ver_old % 100)
-        path_dst = bpy.utils.resource_path('USER')
-
-        if os.path.isdir(path_dst):
-            self.report({'ERROR'}, "Target path %r exists" % path_dst)
-        elif not os.path.isdir(path_src):
-            self.report({'ERROR'}, "Source path %r does not exist" % path_src)
-        else:
-            shutil.copytree(path_src, path_dst, symlinks=True)
-
-            # reload recent-files.txt
-            bpy.ops.wm.read_history()
-
-            # don't loose users work if they open the splash later.
-            if bpy.data.is_saved is bpy.data.is_dirty is False:
-                bpy.ops.wm.read_homefile()
-            else:
-                self.report({'INFO'}, "Reload Start-Up file to restore settings")
-
-            return {'FINISHED'}
-
-        return {'CANCELLED'}
-
-
-class WM_OT_blenderplayer_start(Operator):
-    """Launch the blender-player with the current blend-file"""
-    bl_idname = "wm.blenderplayer_start"
-    bl_label = "Start Game In Player"
-
-    def execute(self, context):
-        import os
-        import sys
-        import subprocess
-
-        gs = context.scene.game_settings
-
-        # these remain the same every execution
-        blender_bin_path = bpy.app.binary_path
-        blender_bin_dir = os.path.dirname(blender_bin_path)
-        ext = os.path.splitext(blender_bin_path)[-1]
-        player_path = os.path.join(blender_bin_dir, "blenderplayer" + ext)
-        # done static vars
-
-        if sys.platform == "darwin":
-            player_path = os.path.join(blender_bin_dir, "../../../blenderplayer.app/Contents/MacOS/blenderplayer")
-
-        if not os.path.exists(player_path):
-            self.report({'ERROR'}, "Player path: %r not found" % player_path)
-            return {'CANCELLED'}
-
-        filepath = bpy.data.filepath + '~' if bpy.data.is_saved else os.path.join(bpy.app.tempdir, "game.blend")
-        bpy.ops.wm.save_as_mainfile('EXEC_DEFAULT', filepath=filepath, copy=True)
-
-        # start the command line call with the player path
-        args = [player_path]
-
-        # handle some UI options as command line arguments
-        args.extend([
-            "-g", "show_framerate", "=", "%d" % gs.show_framerate_profile,
-            "-g", "show_profile", "=", "%d" % gs.show_framerate_profile,
-            "-g", "show_properties", "=", "%d" % gs.show_debug_properties,
-            "-g", "ignore_deprecation_warnings", "=", "%d" % (not gs.use_deprecation_warnings),
-        ])
-
-        # finish the call with the path to the blend file
-        args.append(filepath)
-
-        subprocess.call(args)
-        os.remove(filepath)
-        return {'FINISHED'}
-
-
-class WM_OT_keyconfig_test(Operator):
-    """Test key-config for conflicts"""
-    bl_idname = "wm.keyconfig_test"
-    bl_label = "Test Key Configuration for Conflicts"
-
-    def execute(self, context):
-        from bpy_extras import keyconfig_utils
-
-        wm = context.window_manager
-        kc = wm.keyconfigs.default
-
-        if keyconfig_utils.keyconfig_test(kc):
-            print("CONFLICT")
-
-        return {'FINISHED'}
-
-
-class WM_OT_keyconfig_import(Operator):
-    """Import key configuration from a python script"""
-    bl_idname = "wm.keyconfig_import"
-    bl_label = "Import Key Configuration..."
-
-    filepath = StringProperty(
-            subtype='FILE_PATH',
-            default="keymap.py",
-            )
-    filter_folder = BoolProperty(
-            name="Filter folders",
-            default=True,
-            options={'HIDDEN'},
-            )
-    filter_text = BoolProperty(
-            name="Filter text",
-            default=True,
-            options={'HIDDEN'},
-            )
-    filter_python = BoolProperty(
-            name="Filter python",
-            default=True,
-            options={'HIDDEN'},
-            )
-    keep_original = BoolProperty(
-            name="Keep original",
-            description="Keep original file after copying to configuration folder",
-            default=True,
-            )
-
-    def execute(self, context):
-        import os
-        from os.path import basename
-        import shutil
-
-        if not self.filepath:
-            self.report({'ERROR'}, "Filepath not set")
-            return {'CANCELLED'}
-
-        config_name = basename(self.filepath)
-
-        path = bpy.utils.user_resource('SCRIPTS', os.path.join("presets", "keyconfig"), create=True)
-        path = os.path.join(path, config_name)
-
-        try:
-            if self.keep_original:
-                shutil.copy(self.filepath, path)
-            else:
-                shutil.move(self.filepath, path)
-        except Exception as e:
-            self.report({'ERROR'}, "Installing keymap failed: %s" % e)
-            return {'CANCELLED'}
-
-        # sneaky way to check we're actually running the code.
-        if bpy.utils.keyconfig_set(path, report=self.report):
-            return {'FINISHED'}
-        else:
-            return {'CANCELLED'}
-
-    def invoke(self, context, event):
-        wm = context.window_manager
-        wm.fileselect_add(self)
-        return {'RUNNING_MODAL'}
-
-# This operator is also used by interaction presets saving - AddPresetBase
-
-
-class WM_OT_keyconfig_export(Operator):
-    """Export key configuration to a python script"""
-    bl_idname = "wm.keyconfig_export"
-    bl_label = "Export Key Configuration..."
-
-    filepath = StringProperty(
-            subtype='FILE_PATH',
-            default="keymap.py",
-            )
-    filter_folder = BoolProperty(
-            name="Filter folders",
-            default=True,
-            options={'HIDDEN'},
-            )
-    filter_text = BoolProperty(
-            name="Filter text",
-            default=True,
-            options={'HIDDEN'},
-            )
-    filter_python = BoolProperty(
-            name="Filter python",
-            default=True,
-            options={'HIDDEN'},
-            )
-
-    def execute(self, context):
-        from bpy_extras import keyconfig_utils
-
-        if not self.filepath:
-            raise Exception("Filepath not set")
-
-        if not self.filepath.endswith(".py"):
-            self.filepath += ".py"
-
-        wm = context.window_manager
-
-        keyconfig_utils.keyconfig_export(
-            wm,
-            wm.keyconfigs.active,
-            self.filepath,
-        )
-
-        return {'FINISHED'}
-
-    def invoke(self, context, event):
-        wm = context.window_manager
-        wm.fileselect_add(self)
-        return {'RUNNING_MODAL'}
-
-
-class WM_OT_keymap_restore(Operator):
-    """Restore key map(s)"""
-    bl_idname = "wm.keymap_restore"
-    bl_label = "Restore Key Map(s)"
-
-    all = BoolProperty(
-            name="All Keymaps",
-            description="Restore all keymaps to default",
-            )
-
-    def execute(self, context):
-        wm = context.window_manager
-
-        if self.all:
-            for km in wm.keyconfigs.user.keymaps:
-                km.restore_to_default()
-        else:
-            km = context.keymap
-            km.restore_to_default()
-
-        return {'FINISHED'}
-
-
-class WM_OT_keyitem_restore(Operator):
-    """Restore key map item"""
-    bl_idname = "wm.keyitem_restore"
-    bl_label = "Restore Key Map Item"
-
-    item_id = IntProperty(
-            name="Item Identifier",
-            description="Identifier of the item to remove",
-            )
-
-    @classmethod
-    def poll(cls, context):
-        keymap = getattr(context, "keymap", None)
-        return keymap
-
-    def execute(self, context):
-        km = context.keymap
-        kmi = km.keymap_items.from_id(self.item_id)
-
-        if (not kmi.is_user_defined) and kmi.is_user_modified:
-            km.restore_item_to_default(kmi)
-
-        return {'FINISHED'}
-
-
-class WM_OT_keyitem_add(Operator):
-    """Add key map item"""
-    bl_idname = "wm.keyitem_add"
-    bl_label = "Add Key Map Item"
-
-    def execute(self, context):
-        km = context.keymap
-
-        if km.is_modal:
-            km.keymap_items.new_modal("", 'A', 'PRESS')
-        else:
-            km.keymap_items.new("none", 'A', 'PRESS')
-
-        # clear filter and expand keymap so we can see the newly added item
-        if context.space_data.filter_text != "":
-            context.space_data.filter_text = ""
-            km.show_expanded_items = True
-            km.show_expanded_children = True
-
-        return {'FINISHED'}
-
-
-class WM_OT_keyitem_remove(Operator):
-    """Remove key map item"""
-    bl_idname = "wm.keyitem_remove"
-    bl_label = "Remove Key Map Item"
-
-    item_id = IntProperty(
-            name="Item Identifier",
-            description="Identifier of the item to remove",
-            )
-
-    @classmethod
-    def poll(cls, context):
-        return hasattr(context, "keymap")
-
-    def execute(self, context):
-        km = context.keymap
-        kmi = km.keymap_items.from_id(self.item_id)
-        km.keymap_items.remove(kmi)
-        return {'FINISHED'}
-
-
-class WM_OT_keyconfig_remove(Operator):
-    """Remove key config"""
-    bl_idname = "wm.keyconfig_remove"
-    bl_label = "Remove Key Config"
-
-    @classmethod
-    def poll(cls, context):
-        wm = context.window_manager
-        keyconf = wm.keyconfigs.active
-        return keyconf and keyconf.is_user_defined
-
-    def execute(self, context):
-        wm = context.window_manager
-        keyconfig = wm.keyconfigs.active
-        wm.keyconfigs.remove(keyconfig)
-        return {'FINISHED'}
 
 
 class WM_OT_operator_cheat_sheet(Operator):
@@ -1782,7 +1583,7 @@ class WM_OT_operator_cheat_sheet(Operator):
     bl_idname = "wm.operator_cheat_sheet"
     bl_label = "Operator Cheat Sheet"
 
-    def execute(self, context):
+    def execute(self, _context):
         op_strings = []
         tot = 0
         for op_module_name in dir(bpy.ops):
@@ -1806,537 +1607,984 @@ class WM_OT_operator_cheat_sheet(Operator):
 # -----------------------------------------------------------------------------
 # Add-on Operators
 
-class WM_OT_addon_enable(Operator):
-    """Enable an add-on"""
-    bl_idname = "wm.addon_enable"
+class WM_OT_owner_enable(Operator):
+    """Enable workspace owner ID"""
+    bl_idname = "wm.owner_enable"
     bl_label = "Enable Add-on"
 
-    module = StringProperty(
-            name="Module",
-            description="Module name of the add-on to enable",
-            )
+    owner_id: StringProperty(
+        name="UI Tag",
+    )
 
     def execute(self, context):
-        import addon_utils
+        workspace = context.workspace
+        workspace.owner_ids.new(self.owner_id)
+        return {'FINISHED'}
 
-        err_str = ""
 
-        def err_cb(ex):
-            import traceback
-            nonlocal err_str
-            err_str = traceback.format_exc()
-            print(err_str)
+class WM_OT_owner_disable(Operator):
+    """Enable workspace owner ID"""
+    bl_idname = "wm.owner_disable"
+    bl_label = "Disable UI Tag"
 
-        mod = addon_utils.enable(self.module, default_set=True, handle_error=err_cb)
+    owner_id: StringProperty(
+        name="UI Tag",
+    )
 
-        if mod:
-            info = addon_utils.module_bl_info(mod)
+    def execute(self, context):
+        workspace = context.workspace
+        owner_id = workspace.owner_ids[self.owner_id]
+        workspace.owner_ids.remove(owner_id)
+        return {'FINISHED'}
 
-            info_ver = info.get("blender", (0, 0, 0))
 
-            if info_ver > bpy.app.version:
-                self.report({'WARNING'},
-                            ("This script was written Blender "
-                             "version %d.%d.%d and might not "
-                             "function (correctly), "
-                             "though it is enabled" %
-                             info_ver))
+class WM_OT_tool_set_by_id(Operator):
+    """Set the tool by name (for keymaps)"""
+    bl_idname = "wm.tool_set_by_id"
+    bl_label = "Set Tool By Name"
+
+    name: StringProperty(
+        name="Identifier",
+        description="Identifier of the tool",
+    )
+    cycle: BoolProperty(
+        name="Cycle",
+        description="Cycle through tools in this group",
+        default=False,
+        options={'SKIP_SAVE'},
+    )
+    as_fallback: BoolProperty(
+        name="Set Fallback",
+        description="Set the fallback tool instead of the primary tool",
+        default=False,
+        options={'SKIP_SAVE', 'HIDDEN'},
+    )
+
+    space_type: rna_space_type_prop
+
+    if use_toolbar_release_hack:
+        def invoke(self, context, event):
+            # Hack :S
+            if not self.properties.is_property_set("name"):
+                WM_OT_toolbar._key_held = False
+                return {'PASS_THROUGH'}
+            elif (WM_OT_toolbar._key_held == event.type) and (event.value != 'RELEASE'):
+                return {'PASS_THROUGH'}
+            WM_OT_toolbar._key_held = None
+
+            return self.execute(context)
+
+    def execute(self, context):
+        from bl_ui.space_toolsystem_common import (
+            activate_by_id,
+            activate_by_id_or_cycle,
+        )
+
+        if self.properties.is_property_set("space_type"):
+            space_type = self.space_type
+        else:
+            space_type = context.space_data.type
+
+        fn = activate_by_id_or_cycle if self.cycle else activate_by_id
+        if fn(context, space_type, self.name, as_fallback=self.as_fallback):
+            if self.as_fallback:
+                tool_settings = context.tool_settings
+                tool_settings.workspace_tool_type = 'FALLBACK'
             return {'FINISHED'}
         else:
-
-            if err_str:
-                self.report({'ERROR'}, err_str)
-
+            self.report({'WARNING'}, f"Tool {self.name!r:s} not found for space {space_type!r:s}.")
             return {'CANCELLED'}
 
 
-class WM_OT_addon_disable(Operator):
-    """Disable an add-on"""
-    bl_idname = "wm.addon_disable"
-    bl_label = "Disable Add-on"
+class WM_OT_tool_set_by_index(Operator):
+    """Set the tool by index (for keymaps)"""
+    bl_idname = "wm.tool_set_by_index"
+    bl_label = "Set Tool By Index"
+    index: IntProperty(
+        name="Index in toolbar",
+        default=0,
+    )
+    cycle: BoolProperty(
+        name="Cycle",
+        description="Cycle through tools in this group",
+        default=False,
+        options={'SKIP_SAVE'},
+    )
 
-    module = StringProperty(
-            name="Module",
-            description="Module name of the add-on to disable",
-            )
+    expand: BoolProperty(
+        description="Include tool sub-groups",
+        default=True,
+    )
 
-    def execute(self, context):
-        import addon_utils
+    as_fallback: BoolProperty(
+        name="Set Fallback",
+        description="Set the fallback tool instead of the primary",
+        default=False,
+        options={'SKIP_SAVE', 'HIDDEN'},
+    )
 
-        err_str = ""
-
-        def err_cb(ex):
-            import traceback
-            nonlocal err_str
-            err_str = traceback.format_exc()
-            print(err_str)
-
-        addon_utils.disable(self.module, default_set=True, handle_error=err_cb)
-
-        if err_str:
-            self.report({'ERROR'}, err_str)
-
-        return {'FINISHED'}
-
-
-class WM_OT_theme_install(Operator):
-    """Load and apply a Blender XML theme file"""
-    bl_idname = "wm.theme_install"
-    bl_label = "Install Theme..."
-
-    overwrite = BoolProperty(
-            name="Overwrite",
-            description="Remove existing theme file if exists",
-            default=True,
-            )
-    filepath = StringProperty(
-            subtype='FILE_PATH',
-            )
-    filter_folder = BoolProperty(
-            name="Filter folders",
-            default=True,
-            options={'HIDDEN'},
-            )
-    filter_glob = StringProperty(
-            default="*.xml",
-            options={'HIDDEN'},
-            )
+    space_type: rna_space_type_prop
 
     def execute(self, context):
-        import os
-        import shutil
-        import traceback
-
-        xmlfile = self.filepath
-
-        path_themes = bpy.utils.user_resource('SCRIPTS', "presets/interface_theme", create=True)
-
-        if not path_themes:
-            self.report({'ERROR'}, "Failed to get themes path")
-            return {'CANCELLED'}
-
-        path_dest = os.path.join(path_themes, os.path.basename(xmlfile))
-
-        if not self.overwrite:
-            if os.path.exists(path_dest):
-                self.report({'WARNING'}, "File already installed to %r\n" % path_dest)
-                return {'CANCELLED'}
-
-        try:
-            shutil.copyfile(xmlfile, path_dest)
-            bpy.ops.script.execute_preset(
-                filepath=path_dest,
-                menu_idname="USERPREF_MT_interface_theme_presets",
-            )
-
-        except:
-            traceback.print_exc()
-            return {'CANCELLED'}
-
-        return {'FINISHED'}
-
-    def invoke(self, context, event):
-        wm = context.window_manager
-        wm.fileselect_add(self)
-        return {'RUNNING_MODAL'}
-
-
-class WM_OT_addon_refresh(Operator):
-    """Scan add-on directories for new modules"""
-    bl_idname = "wm.addon_refresh"
-    bl_label = "Refresh"
-
-    def execute(self, context):
-        import addon_utils
-
-        addon_utils.modules_refresh()
-
-        return {'FINISHED'}
-
-
-# Note: shares some logic with WM_OT_app_template_install
-# but not enough to de-duplicate. Fixed here may apply to both.
-class WM_OT_addon_install(Operator):
-    """Install an add-on"""
-    bl_idname = "wm.addon_install"
-    bl_label = "Install Add-on from File..."
-
-    overwrite = BoolProperty(
-            name="Overwrite",
-            description="Remove existing add-ons with the same ID",
-            default=True,
-            )
-    target = EnumProperty(
-            name="Target Path",
-            items=(('DEFAULT', "Default", ""),
-                   ('PREFS', "User Prefs", "")),
-            )
-
-    filepath = StringProperty(
-            subtype='FILE_PATH',
-            )
-    filter_folder = BoolProperty(
-            name="Filter folders",
-            default=True,
-            options={'HIDDEN'},
-            )
-    filter_python = BoolProperty(
-            name="Filter python",
-            default=True,
-            options={'HIDDEN'},
-            )
-    filter_glob = StringProperty(
-            default="*.py;*.zip",
-            options={'HIDDEN'},
-            )
-
-    def execute(self, context):
-        import addon_utils
-        import traceback
-        import zipfile
-        import shutil
-        import os
-
-        pyfile = self.filepath
-
-        if self.target == 'DEFAULT':
-            # don't use bpy.utils.script_paths("addons") because we may not be able to write to it.
-            path_addons = bpy.utils.user_resource('SCRIPTS', "addons", create=True)
-        else:
-            path_addons = context.user_preferences.filepaths.script_directory
-            if path_addons:
-                path_addons = os.path.join(path_addons, "addons")
-
-        if not path_addons:
-            self.report({'ERROR'}, "Failed to get add-ons path")
-            return {'CANCELLED'}
-
-        if not os.path.isdir(path_addons):
-            try:
-                os.makedirs(path_addons, exist_ok=True)
-            except:
-                traceback.print_exc()
-
-        # Check if we are installing from a target path,
-        # doing so causes 2+ addons of same name or when the same from/to
-        # location is used, removal of the file!
-        addon_path = ""
-        pyfile_dir = os.path.dirname(pyfile)
-        for addon_path in addon_utils.paths():
-            if os.path.samefile(pyfile_dir, addon_path):
-                self.report({'ERROR'}, "Source file is in the add-on search path: %r" % addon_path)
-                return {'CANCELLED'}
-        del addon_path
-        del pyfile_dir
-        # done checking for exceptional case
-
-        addons_old = {mod.__name__ for mod in addon_utils.modules()}
-
-        # check to see if the file is in compressed format (.zip)
-        if zipfile.is_zipfile(pyfile):
-            try:
-                file_to_extract = zipfile.ZipFile(pyfile, 'r')
-            except:
-                traceback.print_exc()
-                return {'CANCELLED'}
-
-            if self.overwrite:
-                for f in file_to_extract.namelist():
-                    module_filesystem_remove(path_addons, f)
-            else:
-                for f in file_to_extract.namelist():
-                    path_dest = os.path.join(path_addons, os.path.basename(f))
-                    if os.path.exists(path_dest):
-                        self.report({'WARNING'}, "File already installed to %r\n" % path_dest)
-                        return {'CANCELLED'}
-
-            try:  # extract the file to "addons"
-                file_to_extract.extractall(path_addons)
-            except:
-                traceback.print_exc()
-                return {'CANCELLED'}
-
-        else:
-            path_dest = os.path.join(path_addons, os.path.basename(pyfile))
-
-            if self.overwrite:
-                module_filesystem_remove(path_addons, os.path.basename(pyfile))
-            elif os.path.exists(path_dest):
-                self.report({'WARNING'}, "File already installed to %r\n" % path_dest)
-                return {'CANCELLED'}
-
-            # if not compressed file just copy into the addon path
-            try:
-                shutil.copyfile(pyfile, path_dest)
-            except:
-                traceback.print_exc()
-                return {'CANCELLED'}
-
-        addons_new = {mod.__name__ for mod in addon_utils.modules()} - addons_old
-        addons_new.discard("modules")
-
-        # disable any addons we may have enabled previously and removed.
-        # this is unlikely but do just in case. bug [#23978]
-        for new_addon in addons_new:
-            addon_utils.disable(new_addon, default_set=True)
-
-        # possible the zip contains multiple addons, we could disallow this
-        # but for now just use the first
-        for mod in addon_utils.modules(refresh=False):
-            if mod.__name__ in addons_new:
-                info = addon_utils.module_bl_info(mod)
-
-                # show the newly installed addon.
-                context.window_manager.addon_filter = 'All'
-                context.window_manager.addon_search = info["name"]
-                break
-
-        # in case a new module path was created to install this addon.
-        bpy.utils.refresh_script_paths()
-
-        # print message
-        msg = (
-            tip_("Modules Installed (%s) from %r into %r") %
-            (", ".join(sorted(addons_new)), pyfile, path_addons)
+        from bl_ui.space_toolsystem_common import (
+            activate_by_id,
+            activate_by_id_or_cycle,
+            item_from_index_active,
+            item_from_flat_index,
         )
-        print(msg)
-        self.report({'INFO'}, msg)
 
-        return {'FINISHED'}
+        if self.properties.is_property_set("space_type"):
+            space_type = self.space_type
+        else:
+            space_type = context.space_data.type
 
-    def invoke(self, context, event):
-        wm = context.window_manager
-        wm.fileselect_add(self)
-        return {'RUNNING_MODAL'}
+        fn = item_from_flat_index if self.expand else item_from_index_active
+        item = fn(context, space_type, self.index)
+        if item is None:
+            # Don't report, since the number of tools may change.
+            return {'CANCELLED'}
+
+        # Same as: WM_OT_tool_set_by_id
+        fn = activate_by_id_or_cycle if self.cycle else activate_by_id
+        if fn(context, space_type, item.idname, as_fallback=self.as_fallback):
+            if self.as_fallback:
+                tool_settings = context.tool_settings
+                tool_settings.workspace_tool_type = 'FALLBACK'
+            return {'FINISHED'}
+        else:
+            # Since we already have the tool, this can't happen.
+            raise Exception("Internal error setting tool")
 
 
-class WM_OT_addon_remove(Operator):
-    """Delete the add-on from the file system"""
-    bl_idname = "wm.addon_remove"
-    bl_label = "Remove Add-on"
+class WM_OT_toolbar(Operator):
+    bl_idname = "wm.toolbar"
+    bl_label = "Toolbar"
 
-    module = StringProperty(
-            name="Module",
-            description="Module name of the add-on to remove",
-            )
+    @classmethod
+    def poll(cls, context):
+        return context.space_data is not None
+
+    if use_toolbar_release_hack:
+        _key_held = None
+
+        def invoke(self, context, event):
+            WM_OT_toolbar._key_held = event.type
+            return self.execute(context)
 
     @staticmethod
-    def path_from_addon(module):
-        import os
-        import addon_utils
+    def keymap_from_toolbar(context, space_type, use_fallback_keys=True, use_reset=True):
+        from bl_ui.space_toolsystem_common import ToolSelectPanelHelper
+        from bl_keymap_utils import keymap_from_toolbar
 
-        for mod in addon_utils.modules():
-            if mod.__name__ == module:
-                filepath = mod.__file__
-                if os.path.exists(filepath):
-                    if os.path.splitext(os.path.basename(filepath))[0] == "__init__":
-                        return os.path.dirname(filepath), True
-                    else:
-                        return filepath, False
-        return None, False
+        cls = ToolSelectPanelHelper._tool_class_from_space_type(space_type)
+        if cls is None:
+            return None, None
 
-    def execute(self, context):
-        import addon_utils
-        import os
-
-        path, isdir = WM_OT_addon_remove.path_from_addon(self.module)
-        if path is None:
-            self.report({'WARNING'}, "Add-on path %r could not be found" % path)
-            return {'CANCELLED'}
-
-        # in case its enabled
-        addon_utils.disable(self.module, default_set=True)
-
-        import shutil
-        if isdir:
-            shutil.rmtree(path)
-        else:
-            os.remove(path)
-
-        addon_utils.modules_refresh()
-
-        context.area.tag_redraw()
-        return {'FINISHED'}
-
-    # lame confirmation check
-    def draw(self, context):
-        self.layout.label(text="Remove Add-on: %r?" % self.module)
-        path, isdir = WM_OT_addon_remove.path_from_addon(self.module)
-        self.layout.label(text="Path: %r" % path)
-
-    def invoke(self, context, event):
-        wm = context.window_manager
-        return wm.invoke_props_dialog(self, width=600)
-
-
-class WM_OT_addon_expand(Operator):
-    """Display information and preferences for this add-on"""
-    bl_idname = "wm.addon_expand"
-    bl_label = ""
-    bl_options = {'INTERNAL'}
-
-    module = StringProperty(
-            name="Module",
-            description="Module name of the add-on to expand",
-            )
-
-    def execute(self, context):
-        import addon_utils
-
-        module_name = self.module
-
-        mod = addon_utils.addons_fake_modules.get(module_name)
-        if mod is not None:
-            info = addon_utils.module_bl_info(mod)
-            info["show_expanded"] = not info["show_expanded"]
-
-        return {'FINISHED'}
-
-
-class WM_OT_addon_userpref_show(Operator):
-    """Show add-on user preferences"""
-    bl_idname = "wm.addon_userpref_show"
-    bl_label = ""
-    bl_options = {'INTERNAL'}
-
-    module = StringProperty(
-            name="Module",
-            description="Module name of the add-on to expand",
-            )
-
-    def execute(self, context):
-        import addon_utils
-
-        module_name = self.module
-
-        modules = addon_utils.modules(refresh=False)
-        mod = addon_utils.addons_fake_modules.get(module_name)
-        if mod is not None:
-            info = addon_utils.module_bl_info(mod)
-            info["show_expanded"] = True
-
-            context.user_preferences.active_section = 'ADDONS'
-            context.window_manager.addon_filter = 'All'
-            context.window_manager.addon_search = info["name"]
-            bpy.ops.screen.userpref_show('INVOKE_DEFAULT')
-
-        return {'FINISHED'}
-
-
-# Note: shares some logic with WM_OT_addon_install
-# but not enough to de-duplicate. Fixes here may apply to both.
-class WM_OT_app_template_install(Operator):
-    """Install an application-template"""
-    bl_idname = "wm.app_template_install"
-    bl_label = "Install Template from File..."
-
-    overwrite = BoolProperty(
-            name="Overwrite",
-            description="Remove existing template with the same ID",
-            default=True,
-            )
-
-    filepath = StringProperty(
-            subtype='FILE_PATH',
-            )
-    filter_folder = BoolProperty(
-            name="Filter folders",
-            default=True,
-            options={'HIDDEN'},
-            )
-    filter_glob = StringProperty(
-            default="*.zip",
-            options={'HIDDEN'},
-            )
-
-    def execute(self, context):
-        import traceback
-        import zipfile
-        import shutil
-        import os
-
-        filepath = self.filepath
-
-        path_app_templates = bpy.utils.user_resource(
-            'SCRIPTS', os.path.join("startup", "bl_app_templates_user"),
-            create=True,
+        return cls, keymap_from_toolbar.generate(
+            context,
+            space_type,
+            use_fallback_keys=use_fallback_keys,
+            use_reset=use_reset,
         )
 
-        if not path_app_templates:
-            self.report({'ERROR'}, "Failed to get add-ons path")
+    def execute(self, context):
+        space_type = context.space_data.type
+        cls, keymap = self.keymap_from_toolbar(context, space_type)
+        if keymap is None:
             return {'CANCELLED'}
 
-        if not os.path.isdir(path_app_templates):
-            try:
-                os.makedirs(path_app_templates, exist_ok=True)
-            except:
-                traceback.print_exc()
+        def draw_menu(popover, context):
+            layout = popover.layout
+            layout.operator_context = 'INVOKE_REGION_WIN'
+            cls.draw_cls(layout, context, detect_layout=False, scale_y=1.0)
 
-        app_templates_old = set(os.listdir(path_app_templates))
+        wm = context.window_manager
+        wm.popover(draw_menu, ui_units_x=8, keymap=keymap)
+        return {'FINISHED'}
 
-        # check to see if the file is in compressed format (.zip)
-        if zipfile.is_zipfile(filepath):
-            try:
-                file_to_extract = zipfile.ZipFile(filepath, 'r')
-            except:
-                traceback.print_exc()
-                return {'CANCELLED'}
 
-            if self.overwrite:
-                for f in file_to_extract.namelist():
-                    module_filesystem_remove(path_app_templates, f)
+class WM_OT_toolbar_fallback_pie(Operator):
+    bl_idname = "wm.toolbar_fallback_pie"
+    bl_label = "Fallback Tool Pie Menu"
+
+    @classmethod
+    def poll(cls, context):
+        return context.space_data is not None
+
+    def invoke(self, context, event):
+        from bl_ui.space_toolsystem_common import ToolSelectPanelHelper
+        space_type = context.space_data.type
+        cls = ToolSelectPanelHelper._tool_class_from_space_type(space_type)
+        if cls is None:
+            return {'PASS_THROUGH'}
+
+        # It's possible we don't have the fallback tool available.
+        # This can happen in the image editor for example when there is no selection
+        # in painting modes.
+        item, _ = cls._tool_get_by_id(context, cls.tool_fallback_id)
+        if item is None:
+            print("Tool", cls.tool_fallback_id, "not active in", cls)
+            return {'PASS_THROUGH'}
+
+        def draw_cb(self, context):
+            from bl_ui.space_toolsystem_common import ToolSelectPanelHelper
+            ToolSelectPanelHelper.draw_fallback_tool_items_for_pie_menu(self.layout, context)
+
+        wm = context.window_manager
+        wm.popup_menu_pie(draw_func=draw_cb, title="Fallback Tool", event=event)
+        return {'FINISHED'}
+
+
+class WM_OT_toolbar_prompt(Operator):
+    """Leader key like functionality for accessing tools"""
+    bl_idname = "wm.toolbar_prompt"
+    bl_label = "Toolbar Prompt"
+
+    @staticmethod
+    def _status_items_generate(cls, keymap, context):
+        from bl_ui.space_toolsystem_common import ToolSelectPanelHelper
+
+        # The keymap doesn't have the same order the tools are declared in,
+        # while we could support this, it's simpler to apply order here.
+        tool_map_id_to_order = {}
+        # Map the
+        tool_map_id_to_label = {}
+        for item in ToolSelectPanelHelper._tools_flatten(cls.tools_from_context(context)):
+            if item is not None:
+                tool_map_id_to_label[item.idname] = item.label
+                tool_map_id_to_order[item.idname] = len(tool_map_id_to_order)
+
+        status_items = []
+
+        for item in keymap.keymap_items:
+            name = item.name
+            key_str = item.to_string()
+            # These are duplicated from regular numbers.
+            if key_str.startswith("Numpad "):
+                continue
+            properties = item.properties
+            idname = item.idname
+            if idname == "wm.tool_set_by_id":
+                tool_idname = properties["name"]
+                name = tool_map_id_to_label[tool_idname]
+                name = name.replace("Annotate ", "")
             else:
-                for f in file_to_extract.namelist():
-                    path_dest = os.path.join(path_app_templates, os.path.basename(f))
-                    if os.path.exists(path_dest):
-                        self.report({'WARNING'}, "File already installed to %r\n" % path_dest)
+                continue
+
+            status_items.append((tool_idname, name, item))
+
+        status_items.sort(
+            key=lambda a: tool_map_id_to_order[a[0]]
+        )
+        return status_items
+
+    def modal(self, context, event):
+        event_type = event.type
+        event_value = event.value
+
+        if event_type in {
+                'LEFTMOUSE', 'RIGHTMOUSE', 'MIDDLEMOUSE',
+                'WHEELDOWNMOUSE', 'WHEELUPMOUSE', 'WHEELINMOUSE', 'WHEELOUTMOUSE',
+                'ESC',
+        }:
+            context.workspace.status_text_set(None)
+            return {'CANCELLED', 'PASS_THROUGH'}
+
+        keymap = self._keymap
+        item = keymap.keymap_items.match_event(event)
+        if item is not None:
+            idname = item.idname
+            properties = item.properties
+            if idname == "wm.tool_set_by_id":
+                tool_idname = properties["name"]
+                bpy.ops.wm.tool_set_by_id(name=tool_idname)
+
+            context.workspace.status_text_set(None)
+            return {'FINISHED'}
+
+        # Pressing entry even again exists, as long as it's not mapped to a key (for convenience).
+        if event_type == self._init_event_type:
+            if event_value == 'RELEASE':
+                if not (event.ctrl or event.alt or event.shift or event.oskey):
+                    context.workspace.status_text_set(None)
+                    return {'CANCELLED'}
+
+        return {'RUNNING_MODAL'}
+
+    def invoke(self, context, event):
+        space_data = context.space_data
+        if space_data is None:
+            return {'CANCELLED'}
+
+        space_type = space_data.type
+        cls, keymap = WM_OT_toolbar.keymap_from_toolbar(
+            context,
+            space_type,
+            use_fallback_keys=False,
+            use_reset=False,
+        )
+        if (keymap is None) or (not keymap.keymap_items):
+            return {'CANCELLED'}
+
+        self._init_event_type = event.type
+
+        # Strip Left/Right, since "Left Alt" isn't especially useful.
+        init_event_type_as_text = self._init_event_type.title().split("_")
+        if init_event_type_as_text[0] in {"Left", "Right"}:
+            del init_event_type_as_text[0]
+        init_event_type_as_text = " ".join(init_event_type_as_text)
+
+        status_items = self._status_items_generate(cls, keymap, context)
+
+        def status_text_fn(self, context):
+
+            layout = self.layout
+            if True:
+                box = layout.row(align=True).box()
+                box.scale_x = 0.8
+                box.label(text=init_event_type_as_text)
+
+            flow = layout.grid_flow(columns=len(status_items), align=True, row_major=True)
+            for _, name, item in status_items:
+                row = flow.row(align=True)
+                row.template_event_from_keymap_item(item, text=name)
+
+        self._keymap = keymap
+
+        context.workspace.status_text_set(status_text_fn)
+
+        context.window_manager.modal_handler_add(self)
+        return {'RUNNING_MODAL'}
+
+
+class BatchRenameAction(bpy.types.PropertyGroup):
+    # category: StringProperty()
+    type: EnumProperty(
+        name="Operation",
+        items=(
+            ('REPLACE', "Find/Replace", "Replace text in the name"),
+            ('SET', "Set Name", "Set a new name or prefix/suffix the existing one"),
+            ('STRIP', "Strip Characters", "Strip leading/trailing text from the name"),
+            ('CASE', "Change Case", "Change case of each name"),
+        ),
+    )
+
+    # We could split these into sub-properties, however it's not so important.
+
+    # type: 'SET'.
+    set_name: StringProperty(name="Name")
+    set_method: EnumProperty(
+        name="Method",
+        items=(
+            ('NEW', "New", ""),
+            ('PREFIX', "Prefix", ""),
+            ('SUFFIX', "Suffix", ""),
+        ),
+        default='SUFFIX',
+    )
+
+    # type: 'STRIP'.
+    strip_chars: EnumProperty(
+        name="Strip Characters",
+        options={'ENUM_FLAG'},
+        items=(
+            ('SPACE', "Spaces", ""),
+            ('DIGIT', "Digits", ""),
+            ('PUNCT', "Punctuation", ""),
+        ),
+    )
+
+    # type: 'STRIP'.
+    strip_part: EnumProperty(
+        name="Strip Part",
+        options={'ENUM_FLAG'},
+        items=(
+            ('START', "Start", ""),
+            ('END', "End", ""),
+        ),
+    )
+
+    # type: 'REPLACE'.
+    replace_src: StringProperty(name="Find")
+    replace_dst: StringProperty(name="Replace")
+    replace_match_case: BoolProperty(name="Case Sensitive")
+    use_replace_regex_src: BoolProperty(
+        name="Regular Expression Find",
+        description="Use regular expressions to match text in the 'Find' field"
+    )
+    use_replace_regex_dst: BoolProperty(
+        name="Regular Expression Replace",
+        description="Use regular expression for the replacement text (supporting groups)"
+    )
+
+    # type: 'CASE'.
+    case_method: EnumProperty(
+        name="Case",
+        items=(
+            ('UPPER', "Upper Case", ""),
+            ('LOWER', "Lower Case", ""),
+            ('TITLE', "Title Case", ""),
+        ),
+    )
+
+    # Weak, add/remove as properties.
+    op_add: BoolProperty()
+    op_remove: BoolProperty()
+
+
+class WM_OT_batch_rename(Operator):
+    bl_idname = "wm.batch_rename"
+    bl_label = "Batch Rename"
+
+    bl_options = {'UNDO'}
+
+    data_type: EnumProperty(
+        name="Type",
+        items=(
+            ('OBJECT', "Objects", ""),
+            ('MATERIAL', "Materials", ""),
+            None,
+            # Enum identifiers are compared with 'object.type'.
+            ('MESH', "Meshes", ""),
+            ('CURVE', "Curves", ""),
+            ('META', "Meta Balls", ""),
+            ('ARMATURE', "Armatures", ""),
+            ('LATTICE', "Lattices", ""),
+            ('GPENCIL', "Grease Pencils", ""),
+            ('CAMERA', "Cameras", ""),
+            ('SPEAKER', "Speakers", ""),
+            ('LIGHT_PROBE', "Light Probes", ""),
+            None,
+            ('BONE', "Bones", ""),
+            ('NODE', "Nodes", ""),
+            ('SEQUENCE_STRIP', "Sequence Strips", ""),
+        ),
+        description="Type of data to rename",
+    )
+
+    data_source: EnumProperty(
+        name="Source",
+        items=(
+            ('SELECT', "Selected", ""),
+            ('ALL', "All", ""),
+        ),
+    )
+
+    actions: CollectionProperty(type=BatchRenameAction)
+
+    @staticmethod
+    def _data_from_context(context, data_type, only_selected, check_context=False):
+
+        mode = context.mode
+        scene = context.scene
+        space = context.space_data
+        space_type = None if (space is None) else space.type
+
+        data = None
+        if space_type == 'SEQUENCE_EDITOR':
+            data_type_test = 'SEQUENCE_STRIP'
+            if check_context:
+                return data_type_test
+            if data_type == data_type_test:
+                data = (
+                    # TODO, we don't have access to seqbasep, this won't work when inside metas.
+                    [seq for seq in context.scene.sequence_editor.sequences_all if seq.select]
+                    if only_selected else
+                    context.scene.sequence_editor.sequences_all,
+                    "name",
+                    "Strip(s)",
+                )
+        elif space_type == 'NODE_EDITOR':
+            data_type_test = 'NODE'
+            if check_context:
+                return data_type_test
+            if data_type == data_type_test:
+                data = (
+                    context.selected_nodes
+                    if only_selected else
+                    list(space.node_tree.nodes),
+                    "name",
+                    "Node(s)",
+                )
+        else:
+            if mode == 'POSE' or (mode == 'WEIGHT_PAINT' and context.pose_object):
+                data_type_test = 'BONE'
+                if check_context:
+                    return data_type_test
+                if data_type == data_type_test:
+                    data = (
+                        [pchan.bone for pchan in context.selected_pose_bones]
+                        if only_selected else
+                        [pbone.bone for ob in context.objects_in_mode_unique_data for pbone in ob.pose.bones],
+                        "name",
+                        "Bone(s)",
+                    )
+            elif mode == 'EDIT_ARMATURE':
+                data_type_test = 'BONE'
+                if check_context:
+                    return data_type_test
+                if data_type == data_type_test:
+                    data = (
+                        context.selected_editable_bones
+                        if only_selected else
+                        [ebone for ob in context.objects_in_mode_unique_data for ebone in ob.data.edit_bones],
+                        "name",
+                        "Edit Bone(s)",
+                    )
+
+        if check_context:
+            return 'OBJECT'
+
+        object_data_type_attrs_map = {
+            'MESH': ("meshes", "Mesh(es)"),
+            'CURVE': ("curves", "Curve(s)"),
+            'META': ("metaballs", "MetaBall(s)"),
+            'ARMATURE': ("armatures", "Armature(s)"),
+            'LATTICE': ("lattices", "Lattice(s)"),
+            'GPENCIL': ("grease_pencils", "Grease Pencil(s)"),
+            'CAMERA': ("cameras", "Camera(s)"),
+            'SPEAKER': ("speakers", "Speaker(s)"),
+            'LIGHT_PROBE': ("light_probes", "LightProbe(s)"),
+        }
+
+        # Finish with space types.
+        if data is None:
+
+            if data_type == 'OBJECT':
+                data = (
+                    context.selected_editable_objects
+                    if only_selected else
+                    [id for id in bpy.data.objects if id.library is None],
+                    "name",
+                    "Object(s)",
+                )
+            elif data_type == 'MATERIAL':
+                data = (
+                    tuple(set(
+                        slot.material
+                        for ob in context.selected_objects
+                        for slot in ob.material_slots
+                        if slot.material is not None
+                    ))
+                    if only_selected else
+                    [id for id in bpy.data.materials if id.library is None],
+                    "name",
+                    "Material(s)",
+                )
+            elif data_type in object_data_type_attrs_map.keys():
+                attr, descr = object_data_type_attrs_map[data_type]
+                data = (
+                    tuple(set(
+                        id
+                        for ob in context.selected_objects
+                        if ob.type == data_type
+                        for id in (ob.data,)
+                        if id is not None and id.library is None
+                    ))
+                    if only_selected else
+                    [id for id in getattr(bpy.data, attr) if id.library is None],
+                    "name",
+                    descr,
+                )
+
+        return data
+
+    @staticmethod
+    def _apply_actions(actions, name):
+        import string
+        import re
+
+        for action in actions:
+            ty = action.type
+            if ty == 'SET':
+                text = action.set_name
+                method = action.set_method
+                if method == 'NEW':
+                    name = text
+                elif method == 'PREFIX':
+                    name = text + name
+                elif method == 'SUFFIX':
+                    name = name + text
+                else:
+                    assert(0)
+
+            elif ty == 'STRIP':
+                chars = action.strip_chars
+                chars_strip = (
+                    "{:s}{:s}{:s}"
+                ).format(
+                    string.punctuation if 'PUNCT' in chars else "",
+                    string.digits if 'DIGIT' in chars else "",
+                    " " if 'SPACE' in chars else "",
+                )
+                part = action.strip_part
+                if 'START' in part:
+                    name = name.lstrip(chars_strip)
+                if 'END' in part:
+                    name = name.rstrip(chars_strip)
+
+            elif ty == 'REPLACE':
+                if action.use_replace_regex_src:
+                    replace_src = action.replace_src
+                    if action.use_replace_regex_dst:
+                        replace_dst = action.replace_dst
+                    else:
+                        replace_dst = action.replace_dst.replace("\\", "\\\\")
+                else:
+                    replace_src = re.escape(action.replace_src)
+                    replace_dst = action.replace_dst.replace("\\", "\\\\")
+                name = re.sub(
+                    replace_src,
+                    replace_dst,
+                    name,
+                    flags=(
+                        0 if action.replace_match_case else
+                        re.IGNORECASE
+                    ),
+                )
+            elif ty == 'CASE':
+                method = action.case_method
+                if method == 'UPPER':
+                    name = name.upper()
+                elif method == 'LOWER':
+                    name = name.lower()
+                elif method == 'TITLE':
+                    name = name.title()
+                else:
+                    assert(0)
+            else:
+                assert(0)
+        return name
+
+    def _data_update(self, context):
+        only_selected = self.data_source == 'SELECT'
+
+        self._data = self._data_from_context(context, self.data_type, only_selected)
+        if self._data is None:
+            self.data_type = self._data_from_context(context, None, False, check_context=True)
+            self._data = self._data_from_context(context, self.data_type, only_selected)
+
+        self._data_source_prev = self.data_source
+        self._data_type_prev = self.data_type
+
+    def draw(self, context):
+        import re
+
+        layout = self.layout
+
+        split = layout.split(factor=0.5)
+        split.label(text="Data Type:")
+        split.prop(self, "data_type", text="")
+
+        split = layout.split(factor=0.5)
+        split.label(text="Rename {:d} {:s}:".format(len(self._data[0]), self._data[2]))
+        split.row().prop(self, "data_source", expand=True)
+
+        for action in self.actions:
+            box = layout.box()
+
+            row = box.row(align=True)
+            row.prop(action, "type", text="")
+            row.prop(action, "op_add", text="", icon='ADD')
+            row.prop(action, "op_remove", text="", icon='REMOVE')
+
+            ty = action.type
+            if ty == 'SET':
+                box.prop(action, "set_method")
+                box.prop(action, "set_name")
+            elif ty == 'STRIP':
+                box.row().prop(action, "strip_chars")
+                box.row().prop(action, "strip_part")
+            elif ty == 'REPLACE':
+
+                row = box.row(align=True)
+                re_error_src = None
+                if action.use_replace_regex_src:
+                    try:
+                        re.compile(action.replace_src)
+                    except Exception as ex:
+                        re_error_src = str(ex)
+                        row.alert = True
+                row.prop(action, "replace_src")
+                row.prop(action, "use_replace_regex_src", text="", icon='SORTBYEXT')
+                if re_error_src is not None:
+                    box.label(text=re_error_src)
+
+                re_error_dst = None
+                row = box.row(align=True)
+                if action.use_replace_regex_src:
+                    if action.use_replace_regex_dst:
+                        if re_error_src is None:
+                            try:
+                                re.sub(action.replace_src, action.replace_dst, "")
+                            except Exception as ex:
+                                re_error_dst = str(ex)
+                                row.alert = True
+
+                row.prop(action, "replace_dst")
+                rowsub = row.row(align=True)
+                rowsub.active = action.use_replace_regex_src
+                rowsub.prop(action, "use_replace_regex_dst", text="", icon='SORTBYEXT')
+                if re_error_dst is not None:
+                    box.label(text=re_error_dst)
+
+                row = box.row()
+                row.prop(action, "replace_match_case")
+            elif ty == 'CASE':
+                box.row().prop(action, "case_method", expand=True)
+
+    def check(self, context):
+        changed = False
+        for i, action in enumerate(self.actions):
+            if action.op_add:
+                action.op_add = False
+                self.actions.add()
+                if i + 2 != len(self.actions):
+                    self.actions.move(len(self.actions) - 1, i + 1)
+                changed = True
+                break
+            if action.op_remove:
+                action.op_remove = False
+                if len(self.actions) > 1:
+                    self.actions.remove(i)
+                changed = True
+                break
+
+        if (
+                (self._data_source_prev != self.data_source) or
+                (self._data_type_prev != self.data_type)
+        ):
+            self._data_update(context)
+            changed = True
+
+        return changed
+
+    def execute(self, context):
+        import re
+
+        seq, attr, descr = self._data
+
+        actions = self.actions
+
+        # Sanitize actions.
+        for action in actions:
+            if action.use_replace_regex_src:
+                try:
+                    re.compile(action.replace_src)
+                except Exception as ex:
+                    self.report({'ERROR'}, "Invalid regular expression (find): " + str(ex))
+                    return {'CANCELLED'}
+
+                if action.use_replace_regex_dst:
+                    try:
+                        re.sub(action.replace_src, action.replace_dst, "")
+                    except Exception as ex:
+                        self.report({'ERROR'}, "Invalid regular expression (replace): " + str(ex))
                         return {'CANCELLED'}
 
-            try:  # extract the file to "bl_app_templates_user"
-                file_to_extract.extractall(path_app_templates)
-            except:
-                traceback.print_exc()
-                return {'CANCELLED'}
+        total_len = 0
+        change_len = 0
+        for item in seq:
+            name_src = getattr(item, attr)
+            name_dst = self._apply_actions(actions, name_src)
+            if name_src != name_dst:
+                setattr(item, attr, name_dst)
+                change_len += 1
+            total_len += 1
 
-        else:
-            # Only support installing zipfiles
-            self.report({'WARNING'}, "Expected a zip-file %r\n" % filepath)
-            return {'CANCELLED'}
-
-        app_templates_new = set(os.listdir(path_app_templates)) - app_templates_old
-
-        # in case a new module path was created to install this addon.
-        bpy.utils.refresh_script_paths()
-
-        # print message
-        msg = (
-            tip_("Template Installed (%s) from %r into %r") %
-            (", ".join(sorted(app_templates_new)), filepath, path_app_templates)
-        )
-        print(msg)
-        self.report({'INFO'}, msg)
+        self.report({'INFO'}, "Renamed {:d} of {:d} {:s}".format(change_len, total_len, descr))
 
         return {'FINISHED'}
 
     def invoke(self, context, event):
+
+        self._data_update(context)
+
+        if not self.actions:
+            self.actions.add()
         wm = context.window_manager
-        wm.fileselect_add(self)
-        return {'RUNNING_MODAL'}
+        return wm.invoke_props_dialog(self, width=400)
+
+
+class WM_MT_splash(Menu):
+    bl_label = "Splash"
+
+    def draw_setup(self, context):
+        wm = context.window_manager
+        # prefs = context.preferences
+
+        layout = self.layout
+
+        layout.operator_context = 'EXEC_DEFAULT'
+
+        layout.label(text="Quick Setup")
+
+        split = layout.split(factor=0.25)
+        split.label()
+        split = split.split(factor=2.0 / 3.0)
+
+        col = split.column()
+
+        sub = col.split(factor=0.35)
+        row = sub.row()
+        row.alignment = 'RIGHT'
+        row.label(text="Language")
+        prefs = context.preferences
+        sub.prop(prefs.view, "language", text="")
+
+        col.separator()
+
+        sub = col.split(factor=0.35)
+        row = sub.row()
+        row.alignment = 'RIGHT'
+        row.label(text="Shortcuts")
+        text = bpy.path.display_name(wm.keyconfigs.active.name)
+        if not text:
+            text = "Blender"
+        sub.menu("USERPREF_MT_keyconfigs", text=text)
+
+        kc = wm.keyconfigs.active
+        kc_prefs = kc.preferences
+        has_select_mouse = hasattr(kc_prefs, "select_mouse")
+        if has_select_mouse:
+            sub = col.split(factor=0.35)
+            row = sub.row()
+            row.alignment = 'RIGHT'
+            row.label(text="Select With")
+            sub.row().prop(kc_prefs, "select_mouse", expand=True)
+            has_select_mouse = True
+
+        has_spacebar_action = hasattr(kc_prefs, "spacebar_action")
+        if has_spacebar_action:
+            sub = col.split(factor=0.35)
+            row = sub.row()
+            row.alignment = 'RIGHT'
+            row.label(text="Spacebar")
+            sub.row().prop(kc_prefs, "spacebar_action", expand=True)
+            has_select_mouse = True
+
+        col.separator()
+
+        sub = col.split(factor=0.35)
+        row = sub.row()
+        row.alignment = 'RIGHT'
+        row.label(text="Theme")
+        label = bpy.types.USERPREF_MT_interface_theme_presets.bl_label
+        if label == "Presets":
+            label = "Blender Dark"
+        sub.menu("USERPREF_MT_interface_theme_presets", text=label)
+
+        # Keep height constant
+        if not has_select_mouse:
+            col.label()
+        if not has_spacebar_action:
+            col.label()
+
+        layout.label()
+
+        row = layout.row()
+
+        sub = row.row()
+        if bpy.types.PREFERENCES_OT_copy_prev.poll(context):
+            old_version = bpy.types.PREFERENCES_OT_copy_prev.previous_version()
+            sub.operator("preferences.copy_prev", text="Load %d.%d Settings" % old_version)
+            sub.operator("wm.save_userpref", text="Save New Settings")
+        else:
+            sub.label()
+            sub.label()
+            sub.operator("wm.save_userpref", text="Next")
+
+        layout.separator()
+        layout.separator()
+
+    def draw(self, context):
+        # Draw setup screen if no preferences have been saved yet.
+        import os
+
+        userconfig_path = bpy.utils.user_resource('CONFIG')
+        userdef_path = os.path.join(userconfig_path, "userpref.blend")
+
+        if not os.path.isfile(userdef_path):
+            self.draw_setup(context)
+            return
+
+        # Pass
+        layout = self.layout
+        layout.operator_context = 'EXEC_DEFAULT'
+        layout.emboss = 'PULLDOWN_MENU'
+
+        split = layout.split()
+
+        # Templates
+        col1 = split.column()
+        col1.label(text="New File")
+
+        bpy.types.TOPBAR_MT_file_new.draw_ex(col1, context, use_splash=True)
+
+        # Recent
+        col2 = split.column()
+        col2_title = col2.row()
+
+        found_recent = col2.template_recent_files()
+
+        if found_recent:
+            col2_title.label(text="Recent Files")
+        else:
+
+            # Links if no recent files
+            col2_title.label(text="Getting Started")
+
+            col2.operator("wm.url_open_preset", text="Manual", icon='URL').type = 'MANUAL'
+            col2.operator("wm.url_open_preset", text="Blender Website", icon='URL').type = 'BLENDER'
+            col2.operator("wm.url_open_preset", text="Credits", icon='URL').type = 'CREDITS'
+
+        layout.separator()
+
+        split = layout.split()
+
+        col1 = split.column()
+        sub = col1.row()
+        sub.operator_context = 'INVOKE_DEFAULT'
+        sub.operator("wm.open_mainfile", text="Open...", icon='FILE_FOLDER')
+        col1.operator("wm.recover_last_session", icon='RECOVER_LAST')
+
+        col2 = split.column()
+
+        col2.operator("wm.url_open_preset", text="Release Notes", icon='URL').type = 'RELEASE_NOTES'
+        col2.operator("wm.url_open_preset", text="Development Fund", icon='FUND').type = 'FUND'
+
+        layout.separator()
+        layout.separator()
+
+
+class WM_OT_drop_blend_file(Operator):
+    bl_idname = "wm.drop_blend_file"
+    bl_label = "Handle dropped .blend file"
+    bl_options = {'INTERNAL'}
+
+    filepath: StringProperty()
+
+    def invoke(self, context, _event):
+        context.window_manager.popup_menu(self.draw_menu, title=bpy.path.basename(self.filepath), icon='QUESTION')
+        return {'FINISHED'}
+
+    def draw_menu(self, menu, _context):
+        layout = menu.layout
+
+        col = layout.column()
+        col.operator_context = 'INVOKE_DEFAULT'
+        props = col.operator("wm.open_mainfile", text="Open", icon='FILE_FOLDER')
+        props.filepath = self.filepath
+        props.display_file_selector = False
+
+        layout.separator()
+        col = layout.column()
+        col.operator_context = 'INVOKE_DEFAULT'
+        col.operator("wm.link", text="Link...", icon='LINK_BLEND').filepath = self.filepath
+        col.operator("wm.append", text="Append...", icon='APPEND_BLEND').filepath = self.filepath
 
 
 classes = (
-    BRUSH_OT_active_index_set,
-    WM_OT_addon_disable,
-    WM_OT_addon_enable,
-    WM_OT_addon_expand,
-    WM_OT_addon_install,
-    WM_OT_addon_refresh,
-    WM_OT_addon_remove,
-    WM_OT_addon_userpref_show,
-    WM_OT_app_template_install,
-    WM_OT_appconfig_activate,
-    WM_OT_appconfig_default,
-    WM_OT_blenderplayer_start,
     WM_OT_context_collection_boolean_set,
     WM_OT_context_cycle_array,
     WM_OT_context_cycle_enum,
@@ -2355,18 +2603,9 @@ classes = (
     WM_OT_context_set_value,
     WM_OT_context_toggle,
     WM_OT_context_toggle_enum,
-    WM_OT_copy_prev_settings,
     WM_OT_doc_view,
     WM_OT_doc_view_manual,
-    WM_OT_keyconfig_activate,
-    WM_OT_keyconfig_export,
-    WM_OT_keyconfig_import,
-    WM_OT_keyconfig_remove,
-    WM_OT_keyconfig_test,
-    WM_OT_keyitem_add,
-    WM_OT_keyitem_remove,
-    WM_OT_keyitem_restore,
-    WM_OT_keymap_restore,
+    WM_OT_drop_blend_file,
     WM_OT_operator_cheat_sheet,
     WM_OT_operator_pie_enum,
     WM_OT_path_open,
@@ -2375,6 +2614,16 @@ classes = (
     WM_OT_properties_edit,
     WM_OT_properties_remove,
     WM_OT_sysinfo,
-    WM_OT_theme_install,
+    WM_OT_owner_disable,
+    WM_OT_owner_enable,
     WM_OT_url_open,
+    WM_OT_url_open_preset,
+    WM_OT_tool_set_by_id,
+    WM_OT_tool_set_by_index,
+    WM_OT_toolbar,
+    WM_OT_toolbar_fallback_pie,
+    WM_OT_toolbar_prompt,
+    BatchRenameAction,
+    WM_OT_batch_rename,
+    WM_MT_splash,
 )

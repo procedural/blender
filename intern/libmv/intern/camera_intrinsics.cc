@@ -1,6 +1,4 @@
 /*
- * ***** BEGIN GPL LICENSE BLOCK *****
- *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
  * as published by the Free Software Foundation; either version 2
@@ -17,11 +15,6 @@
  *
  * The Original Code is Copyright (C) 2011 Blender Foundation.
  * All rights reserved.
- *
- * Contributor(s): Blender Foundation,
- *                 Sergey Sharybin
- *
- * ***** END GPL LICENSE BLOCK *****
  */
 
 #include "intern/camera_intrinsics.h"
@@ -86,6 +79,8 @@ void libmv_cameraIntrinsicsUpdate(
   /* Try avoid unnecessary updates, so pre-computed distortion grids
    * are not freed.
    */
+
+  camera_intrinsics->SetThreads(libmv_camera_intrinsics_options->num_threads);
 
   if (camera_intrinsics->focal_length() != focal_length) {
     camera_intrinsics->SetFocalLength(focal_length, focal_length);

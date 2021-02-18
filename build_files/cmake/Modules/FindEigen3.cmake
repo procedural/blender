@@ -25,10 +25,6 @@ ENDIF()
 
 SET(_eigen3_SEARCH_DIRS
   ${EIGEN3_ROOT_DIR}
-  /usr/local
-  /sw # Fink
-  /opt/local # DarwinPorts
-  /opt/csw # Blastwave
 )
 
 FIND_PATH(EIGEN3_INCLUDE_DIR
@@ -41,7 +37,7 @@ FIND_PATH(EIGEN3_INCLUDE_DIR
     include/eigen3
 )
 
-# handle the QUIETLY and REQUIRED arguments and set EIGEN3_FOUND to TRUE if 
+# handle the QUIETLY and REQUIRED arguments and set EIGEN3_FOUND to TRUE if
 # all listed variables are TRUE
 INCLUDE(FindPackageHandleStandardArgs)
 FIND_PACKAGE_HANDLE_STANDARD_ARGS(Eigen3 DEFAULT_MSG

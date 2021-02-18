@@ -19,12 +19,12 @@
 # ##### END GPL LICENSE BLOCK #####
 
 # Original copyright (see docstring):
-#*****************************************************************************
+# ****************************************************************************
 #       Copyright (C) 2001-2006 Fernando Perez <fperez@colorado.edu>
 #
 #  Distributed under the terms of the BSD License.  The full license is in
 #  the file COPYING, distributed as part of this software.
-#*****************************************************************************
+# ****************************************************************************
 
 # <pep8 compliant>
 
@@ -37,7 +37,7 @@ changes have been made:
 - limit list of modules to prefix in case of "from w"
 - sorted modules
 - added sphinx documentation
-- complete() returns a blank list of the module isnt found
+- complete() returns a blank list of the module isn't found
 """
 
 
@@ -178,7 +178,7 @@ def complete(line):
     words = line.split(' ')
     if len(words) == 3 and words[0] == 'from':
         return ['import ']
-    if len(words) < 3 and (words[0] in ['import', 'from']):
+    if len(words) < 3 and (words[0] in {'import', 'from'}):
         if len(words) == 1:
             return get_root_modules()
         mod = words[1].split('.')

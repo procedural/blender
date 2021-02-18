@@ -31,66 +31,73 @@ class DeviceScene;
 class Scene;
 
 typedef enum FilterType {
-	FILTER_BOX,
-	FILTER_GAUSSIAN,
-	FILTER_BLACKMAN_HARRIS,
+  FILTER_BOX,
+  FILTER_GAUSSIAN,
+  FILTER_BLACKMAN_HARRIS,
 
-	FILTER_NUM_TYPES,
+  FILTER_NUM_TYPES,
 } FilterType;
 
 class Pass {
-public:
-	PassType type;
-	int components;
-	bool filter;
-	bool exposure;
-	PassType divide_type;
+ public:
+  PassType type;
+  int components;
+  bool filter;
+  bool exposure;
+  PassType divide_type;
+  string name;
 
-	static void add(PassType type, array<Pass>& passes);
-	static bool equals(const array<Pass>& A, const array<Pass>& B);
-	static bool contains(const array<Pass>& passes, PassType);
+  static void add(PassType type, vector<Pass> &passes, const char *name = NULL);
+  static bool equals(const vector<Pass> &A, const vector<Pass> &B);
+  static bool contains(const vector<Pass> &passes, PassType);
 };
 
 class Film : public Node {
-public:
-	NODE_DECLARE
+ public:
+  NODE_DECLARE
 
-	float exposure;
-	array<Pass> passes;
-	bool denoising_data_pass;
-	bool denoising_clean_pass;
-	int denoising_flags;
-	float pass_alpha_threshold;
+  float exposure;
+  vector<Pass> passes;
+  bool denoising_data_pass;
+  bool denoising_clean_pass;
+  bool denoising_prefiltered_pass;
+  int denoising_flags;
+  float pass_alpha_threshold;
 
-	int pass_stride;
-	int denoising_data_offset;
-	int denoising_clean_offset;
+  PassType display_pass;
+  int pass_stride;
+  int denoising_data_offset;
+  int denoising_clean_offset;
 
-	FilterType filter_type;
-	float filter_width;
-	size_t filter_table_offset;
+  FilterType filter_type;
+  float filter_width;
+  size_t filter_table_offset;
 
-	float mist_start;
-	float mist_depth;
-	float mist_falloff;
+  float mist_start;
+  float mist_depth;
+  float mist_falloff;
 
-	bool use_light_visibility;
-	bool use_sample_clamp;
+  bool use_light_visibility;
+  CryptomatteType cryptomatte_passes;
+  int cryptomatte_depth;
 
-	bool need_update;
+  bool use_adaptive_sampling;
 
-	Film();
-	~Film();
+  bool need_update;
 
-	void device_update(Device *device, DeviceScene *dscene, Scene *scene);
-	void device_free(Device *device, DeviceScene *dscene, Scene *scene);
+  Film();
+  ~Film();
 
-	bool modified(const Film& film);
-	void tag_passes_update(Scene *scene, const array<Pass>& passes_);
-	void tag_update(Scene *scene);
+  void device_update(Device *device, DeviceScene *dscene, Scene *scene);
+  void device_free(Device *device, DeviceScene *dscene, Scene *scene);
+
+  bool modified(const Film &film);
+  void tag_passes_update(Scene *scene, const vector<Pass> &passes_, bool update_passes = true);
+  void tag_update(Scene *scene);
+
+  int get_aov_offset(string name, bool &is_color);
 };
 
 CCL_NAMESPACE_END
 
 #endif /* __FILM_H__ */
-

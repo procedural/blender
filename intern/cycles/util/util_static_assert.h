@@ -14,55 +14,21 @@
  * limitations under the License.
  */
 
+/* clang-format off */
+
+/* #define static_assert triggers a bug in some clang-format versions, disable
+ * format for entire file to keep results consistent. */
+
 #ifndef __UTIL_STATIC_ASSERT_H__
 #define __UTIL_STATIC_ASSERT_H__
 
 CCL_NAMESPACE_BEGIN
 
-/* TODO(sergey): In theory CUDA might work with own static assert
- * implementation since it's just pure C++.
- */
-#ifndef __KERNEL_GPU__
-#  if (__cplusplus > 199711L) || (defined(_MSC_VER) && _MSC_VER >= 1800)
-/* C++11 has built-in static_assert() */
-#  elif defined(static_assert)
-/* Some platforms might have static_assert() defined even tho their
- * C++ support wouldn't be declared to be C++11.
- */
-#  else  /* C++11 or MSVC2015 */
-template <bool Test> class StaticAssertFailure;
-template <> class StaticAssertFailure<true> {};
-#    define _static_assert_private_glue_impl(A, B) A ## B
-#    define _static_assert_glue(A, B) _static_assert_private_glue_impl(A, B)
-#    ifdef __COUNTER__
-#      define static_assert(condition, message) \
-  enum {_static_assert_glue(q_static_assert_result, __COUNTER__) = sizeof(StaticAssertFailure<!!(condition)>)}  // NOLINT
-#    else  /* __COUNTER__ */
-#      define static_assert(condition, message) \
-  enum {_static_assert_glue(q_static_assert_result, __LINE__) = sizeof(StaticAssertFailure<!!(condition)>)}  // NOLINT
-#    endif  /* __COUNTER__ */
-#  endif  /* C++11 or MSVC2015 */
-#else  /* __KERNEL_GPU__ */
-#  ifndef static_assert
-#    define static_assert(statement, message)
-#  endif
-#endif  /* __KERNEL_GPU__ */
+#if defined(__KERNEL_OPENCL__) || defined(CYCLES_CUBIN_CC)
+#  define static_assert(statement, message)
+#endif /* __KERNEL_OPENCL__ */
 
-/* TODO(sergey): For until C++11 is a bare minimum for us,
- * we do a bit of a trickery to show meaningful message so
- * it's more or less clear what's wrong when building without
- * C++11.
- *
- * The thing here is: our non-C++11 implementation doesn't
- * have a way to print any message after preprocessor
- * substitution so we rely on the message which is passed to
- * static_assert() since that's the only message visible when
- * compilation fails.
- *
- * After C++11 bump it should be possible to glue structure
- * name to the error message,
- */
-#  define static_assert_align(st, align) \
+#define static_assert_align(st, align) \
   static_assert((sizeof(st) % (align) == 0), "Structure must be strictly aligned")  // NOLINT
 
 CCL_NAMESPACE_END

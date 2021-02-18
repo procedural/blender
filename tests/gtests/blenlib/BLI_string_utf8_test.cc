@@ -3,14 +3,14 @@
 #include "testing/testing.h"
 
 extern "C" {
-#include "BLI_utildefines.h"
 #include "BLI_string.h"
 #include "BLI_string_utf8.h"
+#include "BLI_utildefines.h"
 }
 
-/* Note that 'common' utf-8 variants of string functions (like copy, etc.) are tested in BLI_string_test.cc
- * However, tests below are specific utf-8 conformance ones, and since they eat quite their share of lines,
- * they deserved their own file. */
+/* Note that 'common' utf-8 variants of string functions (like copy, etc.) are tested in
+ * BLI_string_test.cc However, tests below are specific utf-8 conformance ones, and since they eat
+ * quite their share of lines, they deserved their own file. */
 
 /* -------------------------------------------------------------------- */
 /* stubs */
@@ -22,18 +22,20 @@ int mk_wcswidth(const wchar_t *pwcs, size_t n);
 
 int mk_wcwidth(wchar_t ucs)
 {
-	return 0;
+  return 0;
 }
 
 int mk_wcswidth(const wchar_t *pwcs, size_t n)
 {
-	return 0;
+  return 0;
 }
-
 }
 
 /* -------------------------------------------------------------------- */
 /* tests */
+
+/* Breaking strings is confusing here, prefer over-long lines. */
+/* clang-format off */
 
 /* Each test is made of a 79 bytes (80 with NULL char) string to test, expected string result after
  * stripping invalid utf8 bytes, and a single-byte string encoded with expected number of errors.
@@ -89,7 +91,7 @@ const char *utf8_invalid_tests[][3] = {
 
 //    3  Malformed sequences
 //    3.1  Unexpected continuation bytes
-//         Each unexpected continuation byte should be separately signalled as a malformed sequence of its own.
+//         Each unexpected continuation byte should be separately signaled as a malformed sequence of its own.
     {"3.1.1  First continuation byte 0x80: \"\x80\"                                      |",
      "3.1.1  First continuation byte 0x80: \"\"                                      |", "\x01"},
     {"3.1.2  Last  continuation byte 0xbf: \"\xbf\"                                      |",
@@ -130,7 +132,7 @@ const char *utf8_invalid_tests[][3] = {
     {"3.2.4      \"\xfc \xfd \"                                                             |",
      "3.2.4      \"  \"                                                             |", "\x02"},
 //    3.3  Sequences with last continuation byte missing
-//         All bytes of an incomplete sequence should be signalled as a single malformed sequence,
+//         All bytes of an incomplete sequence should be signaled as a single malformed sequence,
 //         i.e., you should see only a single replacement character in each of the next 10 tests.
 //         (Characters as in section 2)
     {"3.3.1  2-byte sequence with last byte missing (U+0000):     \"\xc0\"               |",
@@ -154,7 +156,7 @@ const char *utf8_invalid_tests[][3] = {
     {"3.3.10 6-byte sequence with last byte missing (U-7FFFFFFF): \"\xfd\xbf\xbf\xbf\xbf\"           |",
      "3.3.10 6-byte sequence with last byte missing (U-7FFFFFFF): \"\"           |", "\x05"},
 //    3.4  Concatenation of incomplete sequences
-//         All the 10 sequences of 3.3 concatenated, you should see 10 malformed sequences being signalled:
+//         All the 10 sequences of 3.3 concatenated, you should see 10 malformed sequences being signaled:
     {"3.4      \"\xc0\xe0\x80\xf0\x80\x80\xf8\x80\x80\x80\xfc\x80\x80\x80\x80"
                 "\xdf\xef\xbf\xf7\xbf\xbf\xfb\xbf\xbf\xbf\xfd\xbf\xbf\xbf\xbf\""
                 "                                     |",
@@ -271,7 +273,7 @@ const char *utf8_invalid_tests[][3] = {
 //            (to convert between UTF-16LE and UTF-16BE).
 //        With such internal use of noncharacters, it may be desirable and safer to block those code points in
 //        UTF-8 decoders, as they should never occur legitimately in incoming UTF-8 data, and could trigger
-//        unsafe behaviour in subsequent processing.
+//        unsafe behavior in subsequent processing.
 //
 //        Particularly problematic noncharacters in 16-bit applications:
     {"5.3.1  U+FFFE = ef bf be = \"\xef\xbf\xbe\"                                              |",
@@ -281,24 +283,25 @@ const char *utf8_invalid_tests[][3] = {
     /* Fo now, we ignore those, they do not seem to be crucial anyway... */
 //    5.3.3  U+FDD0 .. U+FDEF
 //    5.3.4  U+nFFFE U+nFFFF (for n = 1..10)
-    {NULL, NULL, NULL}
+    {NULL, NULL, NULL},
 };
+/* clang-format on */
 
 /* BLI_utf8_invalid_strip (and indirectly, BLI_utf8_invalid_byte). */
 TEST(string, Utf8InvalidBytes)
 {
-	for (int i = 0; utf8_invalid_tests[i][0] != NULL; i++) {
-		const char *tst = utf8_invalid_tests[i][0];
-		const char *tst_stripped = utf8_invalid_tests[i][1];
-		const int num_errors = (int)utf8_invalid_tests[i][2][0];
+  for (int i = 0; utf8_invalid_tests[i][0] != NULL; i++) {
+    const char *tst = utf8_invalid_tests[i][0];
+    const char *tst_stripped = utf8_invalid_tests[i][1];
+    const int num_errors = (int)utf8_invalid_tests[i][2][0];
 
-		char buff[80];
-		memcpy(buff, tst, sizeof(buff));
+    char buff[80];
+    memcpy(buff, tst, sizeof(buff));
 
-		const int num_errors_found = BLI_utf8_invalid_strip(buff, sizeof(buff) - 1);
+    const int num_errors_found = BLI_utf8_invalid_strip(buff, sizeof(buff) - 1);
 
-		printf("[%02d] -> [%02d] \"%s\"  ->  \"%s\"\n", num_errors, num_errors_found, tst, buff);
-		EXPECT_EQ(num_errors_found, num_errors);
-		EXPECT_STREQ(buff, tst_stripped);
-	}
+    printf("[%02d] -> [%02d] \"%s\"  ->  \"%s\"\n", num_errors, num_errors_found, tst, buff);
+    EXPECT_EQ(num_errors_found, num_errors);
+    EXPECT_STREQ(buff, tst_stripped);
+  }
 }

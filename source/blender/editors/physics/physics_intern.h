@@ -1,6 +1,4 @@
 /*
- * ***** BEGIN GPL LICENSE BLOCK *****
- *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
  * as published by the Free Software Foundation; either version 2
@@ -17,22 +15,21 @@
  *
  * The Original Code is Copyright (C) 2007 by Janne Karhu.
  * All rights reserved.
- *
- * The Original Code is: all of this file.
- *
- * Contributor(s): none yet.
- *
- * ***** END GPL LICENSE BLOCK *****
  */
 
-/** \file blender/editors/physics/physics_intern.h
- *  \ingroup edphys
+/** \file
+ * \ingroup edphys
  */
-
 
 #ifndef __PHYSICS_INTERN_H__
 #define __PHYSICS_INTERN_H__
 
+struct Depsgraph;
+struct Object;
+struct PTCacheEdit;
+struct ParticleSystem;
+struct PointCache;
+struct Scene;
 struct wmOperatorType;
 
 /* particle_edit.c */
@@ -41,6 +38,7 @@ void PARTICLE_OT_select_roots(struct wmOperatorType *ot);
 void PARTICLE_OT_select_tips(struct wmOperatorType *ot);
 void PARTICLE_OT_select_random(struct wmOperatorType *ot);
 void PARTICLE_OT_select_linked(struct wmOperatorType *ot);
+void PARTICLE_OT_select_linked_pick(struct wmOperatorType *ot);
 void PARTICLE_OT_select_less(struct wmOperatorType *ot);
 void PARTICLE_OT_select_more(struct wmOperatorType *ot);
 
@@ -63,6 +61,17 @@ void PARTICLE_OT_edited_clear(struct wmOperatorType *ot);
 
 void PARTICLE_OT_unify_length(struct wmOperatorType *ot);
 
+void PE_create_particle_edit(struct Depsgraph *depsgraph,
+                             struct Scene *scene,
+                             struct Object *ob,
+                             struct PointCache *cache,
+                             struct ParticleSystem *psys);
+void recalc_lengths(struct PTCacheEdit *edit);
+void recalc_emitter_field(struct Depsgraph *depsgraph,
+                          struct Object *ob,
+                          struct ParticleSystem *psys);
+void update_world_cos(struct Object *ob, struct PTCacheEdit *edit);
+
 /* particle_object.c */
 void OBJECT_OT_particle_system_add(struct wmOperatorType *ot);
 void OBJECT_OT_particle_system_remove(struct wmOperatorType *ot);
@@ -81,6 +90,7 @@ void PARTICLE_OT_dupliob_copy(struct wmOperatorType *ot);
 void PARTICLE_OT_dupliob_remove(struct wmOperatorType *ot);
 void PARTICLE_OT_dupliob_move_up(struct wmOperatorType *ot);
 void PARTICLE_OT_dupliob_move_down(struct wmOperatorType *ot);
+void PARTICLE_OT_dupliob_refresh(struct wmOperatorType *ot);
 
 /* particle_boids.c */
 void BOID_OT_rule_add(struct wmOperatorType *ot);
@@ -94,7 +104,19 @@ void BOID_OT_state_move_up(struct wmOperatorType *ot);
 void BOID_OT_state_move_down(struct wmOperatorType *ot);
 
 /* physics_fluid.c */
-void FLUID_OT_bake(struct wmOperatorType *ot);
+void FLUID_OT_bake_all(struct wmOperatorType *ot);
+void FLUID_OT_free_all(struct wmOperatorType *ot);
+void FLUID_OT_bake_data(struct wmOperatorType *ot);
+void FLUID_OT_free_data(struct wmOperatorType *ot);
+void FLUID_OT_bake_noise(struct wmOperatorType *ot);
+void FLUID_OT_free_noise(struct wmOperatorType *ot);
+void FLUID_OT_bake_mesh(struct wmOperatorType *ot);
+void FLUID_OT_free_mesh(struct wmOperatorType *ot);
+void FLUID_OT_bake_particles(struct wmOperatorType *ot);
+void FLUID_OT_free_particles(struct wmOperatorType *ot);
+void FLUID_OT_bake_guides(struct wmOperatorType *ot);
+void FLUID_OT_free_guides(struct wmOperatorType *ot);
+void FLUID_OT_pause_bake(struct wmOperatorType *ot);
 
 /* dynamicpaint.c */
 void DPAINT_OT_bake(struct wmOperatorType *ot);

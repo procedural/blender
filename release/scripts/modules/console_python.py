@@ -68,7 +68,7 @@ def get_console(console_id):
         # check if clearing the namespace is needed to avoid a memory leak.
         # the window manager is normally loaded with new blend files
         # so this is a reasonable way to deal with namespace clearing.
-        # bpy.data hashing is reset by undo so cant be used.
+        # bpy.data hashing is reset by undo so can't be used.
         hash_prev = getattr(get_console, "consoles_namespace_hash", 0)
 
         if hash_prev != hash_next:
@@ -224,6 +224,7 @@ def execute(context, is_interactive):
 
     return {'FINISHED'}
 
+
 execute.hooks = []
 
 
@@ -340,23 +341,20 @@ def banner(context):
     sc = context.space_data
     version_string = sys.version.strip().replace('\n', ' ')
 
-    add_scrollback("PYTHON INTERACTIVE CONSOLE %s" % version_string, 'OUTPUT')
-    add_scrollback("", 'OUTPUT')
-    add_scrollback("Command History:     Up/Down Arrow", 'OUTPUT')
-    add_scrollback("Cursor:              Left/Right Home/End", 'OUTPUT')
-    add_scrollback("Remove:              Backspace/Delete", 'OUTPUT')
-    add_scrollback("Execute:             Enter", 'OUTPUT')
-    add_scrollback("Autocomplete:        Ctrl-Space", 'OUTPUT')
-    add_scrollback("Zoom:                Ctrl +/-, Ctrl-Wheel", 'OUTPUT')
-    add_scrollback("Builtin Modules:     bpy, bpy.data, bpy.ops, "
-                   "bpy.props, bpy.types, bpy.context, bpy.utils, "
-                   "bgl, blf, mathutils",
-                   'OUTPUT')
-    add_scrollback("Convenience Imports: from mathutils import *; "
-                   "from math import *", 'OUTPUT')
-    add_scrollback("Convenience Variables: C = bpy.context, D = bpy.data",
-                   'OUTPUT')
-    add_scrollback("", 'OUTPUT')
+    message = (
+        "PYTHON INTERACTIVE CONSOLE %s" % version_string,
+        "",
+        "Builtin Modules:       "
+        "bpy, bpy.data, bpy.ops, bpy.props, bpy.types, bpy.context, bpy.utils, bgl, blf, mathutils",
+
+        "Convenience Imports:   from mathutils import *; from math import *",
+        "Convenience Variables: C = bpy.context, D = bpy.data",
+        "",
+    )
+
+    for line in message:
+        add_scrollback(line, 'OUTPUT')
+
     sc.prompt = PROMPT
 
     return {'FINISHED'}
